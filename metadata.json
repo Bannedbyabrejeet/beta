@@ -1,0 +1,6 @@
+{
+  "name": "Bannedbyabrejeet - SSH Perimeter Security",
+  "description": "Enterprise SSH brute-force defense solution inspired by Fail2Ban with real-time log parsing, UFW firewall integration, Redis state engine, and multi-service architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
