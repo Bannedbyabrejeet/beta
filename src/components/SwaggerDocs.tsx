@@ -42,7 +42,7 @@ export const SwaggerDocs: React.FC = () => {
     ? OPENAPI_ENDPOINTS
     : OPENAPI_ENDPOINTS.filter(e => e.tags.includes(selectedTag));
 
-  const handleExecute = (endpoint: ApiEndpoint) => {
+  const handleExecute = async (endpoint: ApiEndpoint) => {
     const startTime = performance.now();
     let resultStatus = 200;
     let resultData: any = {};
@@ -59,7 +59,7 @@ export const SwaggerDocs: React.FC = () => {
         resultData = securityEngine.getConfig();
       } else if (endpoint.id === 'put-settings') {
         const body = JSON.parse(requestBodies['put-settings'] || '{}');
-        securityEngine.updateConfig(body);
+        await securityEngine.updateConfig(body);
         resultData = { message: 'Settings updated in Redis config:settings', data: securityEngine.getConfig() };
       } else if (endpoint.id === 'get-whitelist') {
         resultData = {
@@ -68,17 +68,17 @@ export const SwaggerDocs: React.FC = () => {
         };
       } else if (endpoint.id === 'post-whitelist') {
         const body = JSON.parse(requestBodies['post-whitelist'] || '{}');
-        const res = securityEngine.addToWhitelist(body.ip);
+        const res = await securityEngine.addToWhitelist(body.ip);
         resultStatus = res.success ? 200 : 400;
         resultData = { message: res.message };
       } else if (endpoint.id === 'delete-whitelist') {
         const ip = pathParams['delete-whitelist']?.ip || '192.168.1.150';
-        const res = securityEngine.removeFromWhitelist(ip);
+        const res = await securityEngine.removeFromWhitelist(ip);
         resultStatus = res.success ? 200 : 403;
         resultData = res.success ? { message: res.message } : { detail: res.message };
       } else if (endpoint.id === 'post-unban') {
         const body = JSON.parse(requestBodies['post-unban'] || '{}');
-        const res = securityEngine.unbanIp(body.ip, body.reason);
+        const res = await securityEngine.unbanIp(body.ip, body.reason);
         resultData = {
           message: res.message,
           subscribers_notified: 1,
@@ -92,7 +92,7 @@ export const SwaggerDocs: React.FC = () => {
         };
       } else if (endpoint.id === 'post-ingest-log') {
         const body = JSON.parse(requestBodies['post-ingest-log'] || '{}');
-        const res = securityEngine.ingestSshLog(body.raw_log);
+        const res = await securityEngine.ingestSshLog(body.raw_log);
         resultData = {
           parsed: !!res.event,
           event: res.event,
@@ -100,19 +100,19 @@ export const SwaggerDocs: React.FC = () => {
         };
       } else if (endpoint.id === 'post-login') {
         const body = JSON.parse(requestBodies['post-login'] || '{}');
-        const res = securityEngine.login(body.username || '', body.password || '');
+        const res = await securityEngine.login(body.username || '', body.password || '');
         resultStatus = res.success ? 200 : 401;
         resultData = res.success 
           ? { access_token: res.token, token_type: 'bearer', expires_in: 86400, message: res.message }
           : { detail: res.message }; // "Credenciales inválidas"
       } else if (endpoint.id === 'post-setup-admin') {
         const body = JSON.parse(requestBodies['post-setup-admin'] || '{}');
-        const res = securityEngine.registerInitialAdmin(body.username || '', body.email || '', body.password || '');
+        const res = await securityEngine.registerInitialAdmin(body.username || '', body.email || '', body.password || '');
         resultStatus = res.success ? 201 : 400;
         resultData = res.success ? { message: res.message } : { detail: res.message };
       } else if (endpoint.id === 'post-reset-token') {
         const body = JSON.parse(requestBodies['post-reset-token'] || '{}');
-        const res = securityEngine.requestPasswordReset(body.email || '');
+        const res = await securityEngine.requestPasswordReset(body.email || '');
         resultStatus = res.success ? 200 : 404;
         resultData = res.success ? {
           status: 'success',
@@ -123,7 +123,7 @@ export const SwaggerDocs: React.FC = () => {
         } : { detail: res.message };
       } else if (endpoint.id === 'post-reset-confirm') {
         const body = JSON.parse(requestBodies['post-reset-confirm'] || '{}');
-        const res = securityEngine.completePasswordReset(body.token || '', body.new_password || '');
+        const res = await securityEngine.completePasswordReset(body.token || '', body.new_password || '');
         resultStatus = res.success ? 200 : 400;
         resultData = res.success ? { message: res.message } : { detail: res.message };
       } else {

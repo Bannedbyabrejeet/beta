@@ -114,14 +114,14 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   // =========================================================================
 
   // 1. Handle Login (US-01)
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
 
     setActiveRedisCommand(`HGETALL auth:admin && CHECK bcrypt.verify("${password}", password_hash)`);
 
-    const result = securityEngine.login(identifier, password);
+    const result = await securityEngine.login(identifier, password);
     if (result.success) {
       setSuccessMessage('Sesión autenticada. Generando token JWT y redirigiendo...');
       setTimeout(() => {
@@ -134,7 +134,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   };
 
   // 2. Handle Initial Account Creation (US-01.2)
-  const handleSetupSubmit = (e: React.FormEvent) => {
+  const handleSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -151,7 +151,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
 
     setActiveRedisCommand(`HSET auth:admin username "${setupUsername}" email "${setupEmail}" password_hash "$2b$12$..."`);
 
-    const result = securityEngine.registerInitialAdmin(setupUsername, setupEmail, setupPassword);
+    const result = await securityEngine.registerInitialAdmin(setupUsername, setupEmail, setupPassword);
     if (result.success) {
       setSuccessMessage('Cuenta de administrador creada exitosamente. Redirigiendo a la pantalla de Login...');
       setIdentifier(setupUsername);
@@ -166,7 +166,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   };
 
   // 3. Handle Request Password Reset (US-01.3 & US-10)
-  const handleForgotSubmit = (e: React.FormEvent) => {
+  const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -176,7 +176,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
       return;
     }
 
-    const result = securityEngine.requestPasswordReset(forgotEmail);
+    const result = await securityEngine.requestPasswordReset(forgotEmail);
     if (result.success && result.token) {
       setActiveResetToken(result.token);
       setActiveRedisCommand(`SET auth:reset_token:${result.token} "${forgotEmail}" && EXPIRE auth:reset_token:${result.token} 900`);
@@ -188,7 +188,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   };
 
   // 4. Handle Password Reset Confirmation (US-01.3 & US-10)
-  const handleResetSubmit = (e: React.FormEvent) => {
+  const handleResetSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -210,7 +210,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
 
     setActiveRedisCommand(`GET auth:reset_token:${activeResetToken} -> TTL check`);
 
-    const result = securityEngine.completePasswordReset(activeResetToken, newPassword);
+    const result = await securityEngine.completePasswordReset(activeResetToken, newPassword);
     if (result.success) {
       setActiveRedisCommand(`HSET auth:admin password_hash "$2b$12$..." && DEL auth:reset_token:${activeResetToken}`);
       setSuccessMessage(result.message); // "Contraseña actualizada correctamente"

@@ -17,5 +17,11 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
+# Destino del proxy de la API (por defecto: la entrada unificada de Mulet).
+#   Modo local  : VITE_API_TARGET=http://localhost ./start.sh
+#   Modo distribuido (default): http://192.168.220.127 (Nginx en Mulet)
+export VITE_API_TARGET="${VITE_API_TARGET:-http://192.168.220.127}"
+
+echo "🔗 API (proxy Vite): ${VITE_API_TARGET}  ->  /api/v1/* y /api/security/*"
 echo "✅ Iniciando servidor Vite accesible en toda la red local..."
 exec npm run dev -- --host 0.0.0.0 --port 3000

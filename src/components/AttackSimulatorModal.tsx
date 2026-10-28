@@ -33,9 +33,10 @@ export const AttackSimulatorModal: React.FC<AttackSimulatorModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleLaunchAttack = () => {
+  const handleLaunchAttack = async () => {
     setIsRunning(true);
-    securityEngine.simulateAttack({
+    // El simulador ahora golpea el motor REAL (Backend B -> Redis -> UFW)
+    await securityEngine.simulateAttack({
       ip: targetIp,
       user: targetUser,
       attempts,
@@ -47,7 +48,7 @@ export const AttackSimulatorModal: React.FC<AttackSimulatorModalProps> = ({
       setIsRunning(false);
       onClose();
       onNavigateToConsole();
-    }, attempts * delayMs + 300);
+    }, 400);
   };
 
   const applyPreset = (preset: 'bruteforce' | 'whitelist' | 'dictionary' | 'success') => {

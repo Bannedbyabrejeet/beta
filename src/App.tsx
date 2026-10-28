@@ -25,6 +25,13 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  // Sincronización con los backends reales (polling cada 2s).
+  // Así, un ataque SSH detectado en Mulet aparece en el Dashboard al instante.
+  useEffect(() => {
+    securityEngine.startPolling(2000);
+    return () => securityEngine.stopPolling();
+  }, []);
+
   // When authenticated, remove auth tab and redirect to dashboard
   useEffect(() => {
     if (adminUser.isAuthenticated && currentTab === 'auth') {

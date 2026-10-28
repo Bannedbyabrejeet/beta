@@ -26,10 +26,12 @@ echo "🔍 Verificando dependencias Python..."
 pip install --quiet -r requirements.txt
 
 # 4. Exportar variables de entorno apuntando a la máquina de Mulet
-export REDIS_HOST="192.168.220.127"
-export REDIS_PORT="6379"
-export JWT_SECRET_KEY="bannedbyabrejeet_enterprise_secret_2026"
+#    (se pueden sobreescribir por entorno: REDIS_HOST=127.0.0.1 ./start.sh  -> modo local)
+export REDIS_HOST="${REDIS_HOST:-192.168.220.127}"
+export REDIS_PORT="${REDIS_PORT:-6379}"
+export JWT_SECRET_KEY="${JWT_SECRET_KEY:-bannedbyabrejeet_enterprise_secret_2026}"
 
 echo "✅ Entorno listo. Iniciando Uvicorn en http://0.0.0.0:8000 ..."
-echo "📖 Swagger UI disponible en: http://192.168.220.123:8000/docs"
+echo "🔗 Redis: ${REDIS_HOST}:${REDIS_PORT}"
+echo "📖 Swagger UI: http://$(hostname -I | awk '{print $1}'):8000/docs"
 exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload

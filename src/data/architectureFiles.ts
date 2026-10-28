@@ -454,8 +454,9 @@ const redisClient = redis.createClient({ url: process.env.REDIS_URL || 'redis://
 const subClient = redisClient.duplicate();
 
 // Regex optimizada para SSH Auth logs
-const SSH_FAILED_REGEX = /sshd\\[\\d+\\]: Failed password for (invalid user )?(\\S+) from (\\d+\\.\\d+\\.\\d+\\.\\d+) port (\\d+)/;
-const SSH_INVALID_REGEX = /sshd\\[\\d+\\]: Invalid user (\\S+) from (\\d+\\.\\d+\\.\\d+\\.\\d+) port (\\d+)/;
+// (en Ubuntu 24.04+ el proceso se llama "sshd-session[PID]"; se aceptan ambas variantes)
+const SSH_FAILED_REGEX = /sshd(?:-session)?\\[\\d+\\]: Failed password for (invalid user )?(\\S+) from (\\d+\\.\\d+\\.\\d+\\.\\d+) port (\\d+)/;
+const SSH_INVALID_REGEX = /sshd(?:-session)?\\[\\d+\\]: Invalid user (\\S+) from (\\d+\\.\\d+\\.\\d+\\.\\d+) port (\\d+)/;
 
 // =========================================================================
 // 1. Ejecutor de Reglas UFW Firewall

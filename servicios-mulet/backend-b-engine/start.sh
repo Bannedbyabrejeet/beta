@@ -19,9 +19,18 @@ if [ ! -d "node_modules" ]; then
 fi
 
 # 2. Iniciar con sudo para control de firewall UFW y acceso a /var/log/auth.log
-export REDIS_URL="redis://127.0.0.1:6379"
-export PORT="3001"
-export SSH_LOG_PATH="/var/log/auth.log"
+#    SKIP_SUDO=1 arranca sin privilegios (modo local / demo sin root)
+export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
+export PORT="${PORT:-3001}"
+export SSH_LOG_PATH="${SSH_LOG_PATH:-/var/log/auth.log}"
 
-echo "⚡ Ejecutando servidor con permisos de administrador..."
-sudo env "PATH=$PATH" REDIS_URL="$REDIS_URL" PORT="$PORT" SSH_LOG_PATH="$SSH_LOG_PATH" node server.js
+echo "⚡ Ejecutando servidor..."
+if [ "$(id -u)" = "0" ]; then
+    # ya somos root
+    exec env "PATH=$PATH" REDIS_URL="$REDIS_URL" PORT="$PORT" SSH_LOG_PATH="$SSH_LOG_PATH" node server.js
+elif [ "${SKIP_SUDO:-0}" = "1" ]; then
+    echo "⚠️  SKIP_SUDO=1 -> sin privilegios: UFW real no disponible (se usará el shim si está en el PATH)."
+    exec env "PATH=$PATH" REDIS_URL="$REDIS_URL" PORT="$PORT" SSH_LOG_PATH="$SSH_LOG_PATH" node server.js
+else
+    exec sudo env "PATH=$PATH" REDIS_URL="$REDIS_URL" PORT="$PORT" SSH_LOG_PATH="$SSH_LOG_PATH" node server.js
+fi
