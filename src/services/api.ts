@@ -159,7 +159,19 @@ export const backendB = {
     }>(`${API_B}/stats`),
 
   unban: (ip: string) =>
-    post<{ message: string; result: any }>(`${API_B}/unban`, { ip })
+    post<{ message: string; result: any }>(`${API_B}/unban`, { ip }),
+
+  getFail2ban: () =>
+    request<{
+      installed: boolean;
+      active: boolean;
+      jails?: Record<string, string[]>;
+      banned: string[];
+      error?: string;
+    }>(`${API_B}/fail2ban`),
+
+  unbanFail2ban: (ip: string) =>
+    post<{ message: string; result: any }>(`${API_B}/fail2ban/unban`, { ip })
 };
 
 // =========================================================================
