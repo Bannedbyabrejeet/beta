@@ -47,6 +47,10 @@ class SystemSettings(BaseModel):
     max_retries: int = Field(5, ge=1, le=50, description="Número de intentos fallidos antes del ban")
     ban_time_min: int = Field(60, ge=1, le=10080, description="Duración de la penalización en minutos")
     findtime_min: int = Field(10, ge=1, le=1440, description="Ventana de tiempo para contar reintentos")
+    auto_unban_enabled: bool = Field(True, description="Desbanear automáticamente al expirar el TTL")
+    ufw_enabled: bool = Field(True, description="Motor de bloqueo UFW activo")
+    log_source: str = Field("/var/log/auth.log", description="Origen de los eventos SSH")
+    ssh_port: int = Field(22, ge=1, le=65535, description="Puerto SSH vigilado")
 
 class WhitelistItem(BaseModel):
     ip: str = Field(..., description="Dirección IP o subred CIDR (Ej: 192.168.220.123 o 10.0.0.0/24)")
@@ -105,7 +109,14 @@ def health_check():
 @app.get("/api/v1/auth/status", tags=["Authentication"])
 def check_auth_status():
     has_admin = r.exists("auth:admin") == 1
-    return {"is_initialized": has_admin}
+    identity = {}
+    if has_admin:
+        data = r.hgetall("auth:admin")
+        identity = {
+            "username": data.get("username"),
+            "email": data.get("email"),
+        }
+    return {"is_initialized": has_admin, **identity}
 
 @app.post("/api/v1/auth/setup", tags=["Authentication"])
 def initial_setup(req: AdminSetupRequest):
@@ -182,7 +193,11 @@ def get_settings():
     return {
         "max_retries": int(data.get("max_retries", 5)),
         "ban_time_min": int(data.get("ban_time_min", 60)),
-        "findtime_min": int(data.get("findtime_min", 10))
+        "findtime_min": int(data.get("findtime_min", 10)),
+        "auto_unban_enabled": data.get("auto_unban_enabled", "true").lower() in ("1", "true", "yes"),
+        "ufw_enabled": data.get("ufw_enabled", "true").lower() in ("1", "true", "yes"),
+        "log_source": data.get("log_source", "/var/log/auth.log"),
+        "ssh_port": int(data.get("ssh_port", 22)),
     }
 
 @app.put("/api/v1/config/settings", tags=["Configuration"])
@@ -190,7 +205,11 @@ def update_settings(settings: SystemSettings):
     r.hset("config:settings", mapping={
         "max_retries": settings.max_retries,
         "ban_time_min": settings.ban_time_min,
-        "findtime_min": settings.findtime_min
+        "findtime_min": settings.findtime_min,
+        "auto_unban_enabled": "true" if settings.auto_unban_enabled else "false",
+        "ufw_enabled": "true" if settings.ufw_enabled else "false",
+        "log_source": settings.log_source,
+        "ssh_port": settings.ssh_port,
     })
     return {"message": "Settings updated", "data": settings}
 
@@ -217,17 +236,96 @@ def trigger_unban(req: UnbanRequest):
     Publica evento en Redis Pub/Sub hacia el Servicio 2 (Node.js en máquina de Mulet)
     para la remoción inmediata de la regla en UFW Linux Firewall.
     """
+    now = int(datetime.utcnow().timestamp() * 1000)
     event_payload = {
         "action": "UNBAN",
         "ip": req.ip,
         "reason": req.reason,
         "operator": "Abrego (FastAPI)",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": now
     }
     subscribers = r.publish("channel:unban_events", json.dumps(event_payload))
     r.hdel("ip:banned", req.ip)
+    # Se registra en el historial para que el Dashboard muestre la orden de unbaneo
+    r.lpush("security:pubsub", json.dumps({
+        "id": f"pubsub-{now}",
+        "channel": "channel:unban_events",
+        "sender": "FastAPI_Service_1",
+        "payload": {
+            "action": "UNBAN",
+            "ip": req.ip,
+            "timestamp": now,
+            "reason": req.reason
+        }
+    }))
+    r.ltrim("security:pubsub", 0, 199)
     print(f"[UNBAN TRIGGERED] IP {req.ip} publicada en 'channel:unban_events'. Suscriptores notificados: {subscribers}")
     return {
         "message": f"Unban order published to channel:unban_events for IP {req.ip}",
         "subscribers_notified": subscribers
     }
+
+
+@app.get("/api/v1/security/state", tags=["Security Engine Bridge"])
+def security_state():
+    """
+    Estado consolidado de seguridad para el Frontend: IPs baneadas, contadores
+    de fallos, eventos SSH y mensajes Pub/Sub. Todo leído desde Redis, que es
+    la fuente de verdad compartida entre el Servicio 1 y el Servicio 2.
+    """
+    try:
+        banned_raw = r.hgetall("ip:banned")
+        banned = []
+        for ip, value in banned_raw.items():
+            try:
+                record = json.loads(value)
+            except Exception:
+                record = {"reason": value}
+            banned.append({"ip": ip, **record})
+
+        failure_keys = r.keys("ip:failures:*")
+        failures = []
+        for key in failure_keys:
+            ip = key.split("ip:failures:")[-1]
+            timestamps = [int(t) for t in r.lrange(key, 0, -1)]
+            failures.append({
+                "ip": ip,
+                "timestamps": timestamps,
+                "firstSeen": min(timestamps) if timestamps else 0,
+                "lastSeen": max(timestamps) if timestamps else 0,
+                "totalAttempts": len(timestamps),
+                "ttlSeconds": r.ttl(key),
+                "targetedUsers": []
+            })
+
+        logs = []
+        for raw in r.lrange("security:logs", 0, 199):
+            try:
+                logs.append(json.loads(raw))
+            except Exception:
+                pass
+
+        messages = []
+        for raw in r.lrange("security:pubsub", 0, 199):
+            try:
+                messages.append(json.loads(raw))
+            except Exception:
+                pass
+
+        ufw_ops = []
+        for raw in r.lrange("security:ufw_ops", 0, 49):
+            try:
+                ufw_ops.append(json.loads(raw))
+            except Exception:
+                pass
+
+        return {
+            "banned": banned,
+            "failures": failures,
+            "logs": logs,
+            "pubsub": messages,
+            "ufw_ops": ufw_ops,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No se pudo leer el estado de Redis: {e}")

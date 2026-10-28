@@ -2,16 +2,29 @@
 **Proyecto:** Bannedbyabrejeet - Sistema de Seguridad Perimetral SSH & Firewall UFW  
 **Autores:** Manuel Abrego & Santiago Mulet  
 **Institución:** ETEC UM  
-**Ubicación del repositorio en ambas máquinas:** `~/betaa`
+**Ubicación del repositorio en ambas máquinas:** `~/beta`
+
+> 📌 **Documento complementario:** para el detalle completo de dependencias, modo local
+> (todo en una sola máquina) y troubleshooting, ver **[`MANUAL_EJECUCION.md`](MANUAL_EJECUCION.md)**.
+>
+> ⚠️ **Correcciones ya aplicadas al repositorio:**
+> 1. `nginx.conf`: `proxy_pass http://backend_b_engine;` **sin barra final** — con la barra
+>    final Nginx quitaba el prefijo `/api/security/` y `/api/security/health` devolvía 404.
+> 2. `backend-a-fastapi/start.sh`: `REDIS_HOST`, `REDIS_PORT` y `JWT_SECRET_KEY` ahora se
+>    pueden sobrescribir por entorno (útil para el modo local).
+> 3. `backend-b-engine/start.sh`: soporte `SKIP_SUDO=1` y variables por entorno.
+> 4. Los `start.sh` y `setup-nginx.sh` ahora tienen permiso de ejecución (`chmod +x`).
+> 5. Si `python3 -m venv` falla con `ensurepip is not available`, usar `virtualenv`
+>    (ver `MANUAL_EJECUCION.md`, sección 0.1).
 
 ---
 
 ## 🌐 1. Topología de Red y Asignación de Roles
 
-| Alumno | Dirección IP | Servicios Asignados | Carpeta en `~/betaa` | Puerto |
+| Alumno | Dirección IP | Servicios Asignados | Carpeta en `~/beta` | Puerto |
 | :--- | :--- | :--- | :--- | :--- |
-| **Abrego** | `192.168.220.123` | **Backend A** (FastAPI) + **Frontend A** (React Vite) | `~/betaa/servicios-abrego/` | `8000` / `3000` |
-| **Mulet** | `192.168.220.127` | **Proxy Ingress** (Nginx) + **Backend B** (Node/UFW) + **Redis** | `~/betaa/servicios-mulet/` | `80` / `3001` / `6379` |
+| **Abrego** | `192.168.220.123` | **Backend A** (FastAPI) + **Frontend A** (React Vite) | `~/beta/servicios-abrego/` | `8000` / `3000` |
+| **Mulet** | `192.168.220.127` | **Proxy Ingress** (Nginx) + **Backend B** (Node/UFW) + **Redis** | `~/beta/servicios-mulet/` | `80` / `3001` / `6379` |
 
 > 📌 **Punto de Entrada General:** Todos los evaluadores y profesores abren en el navegador:  
 > 👉 **`http://192.168.220.127`** (La IP de Mulet, que mediante Nginx unifica todos los servicios transparentemente).
@@ -88,14 +101,14 @@ redis-cli ping
 
 #### Terminal 2 - Instalar/Recargar el Proxy NGINX:
 ```bash
-cd ~/betaa/servicios-mulet/proxy-nginx
+cd ~/beta/servicios-mulet/proxy-nginx
 chmod +x setup-nginx.sh
 ./setup-nginx.sh
 ```
 
 #### Terminal 3 - Iniciar Backend B (Motor de Seguridad & Driver UFW):
 ```bash
-cd ~/betaa/servicios-mulet/backend-b-engine
+cd ~/beta/servicios-mulet/backend-b-engine
 chmod +x start.sh
 ./start.sh
 ```
@@ -107,7 +120,7 @@ chmod +x start.sh
 
 #### Terminal 1 - Iniciar Backend A (FastAPI Python):
 ```bash
-cd ~/betaa/servicios-abrego/backend-a-fastapi
+cd ~/beta/servicios-abrego/backend-a-fastapi
 chmod +x start.sh
 ./start.sh
 ```
@@ -115,7 +128,7 @@ chmod +x start.sh
 
 #### Terminal 2 - Iniciar Frontend A (React Vite):
 ```bash
-cd ~/betaa/servicios-abrego/frontend-a-react
+cd ~/beta/servicios-abrego/frontend-a-react
 chmod +x start.sh
 ./start.sh
 ```

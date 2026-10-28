@@ -3,6 +3,9 @@
  * Autores: Santiago Mulet & Manuel Abrego
  * Framework: Express / Node.js + Redis Pub/Sub + Linux UFW
  * Ejecutado por: MULET (IP: 192.168.220.127)
+ *
+ * Los eventos procesados se persisten en Redis para que el Frontend (Abrego)
+ * pueda leer el estado REAL del sistema via /api/security/*
  */
 
 const express = require('express');
@@ -18,6 +21,13 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const LOG_PATH = process.env.SSH_LOG_PATH || '/var/log/auth.log';
 const UNBAN_CHANNEL = 'channel:unban_events';
 
+// Claves Redis donde se publica el estado que consume el Frontend
+const K_LOGS = 'security:logs';
+const K_PUBSUB = 'security:pubsub';
+const K_BANNED = 'ip:banned';
+const K_FAILURES_PREFIX = 'ip:failures:';
+const MAX_HISTORY = 200;
+
 app.use(express.json());
 
 // Clientes de Redis (Cliente general + Subscriptor Pub/Sub)
@@ -28,93 +38,335 @@ redisClient.on('error', (err) => console.error('[REDIS CLIENT ERROR]', err.messa
 subClient.on('error', (err) => console.error('[REDIS SUB ERROR]', err.message));
 
 // Regex optimizada para SSH Auth logs (OpenSSH Syslog)
-const SSH_FAILED_REGEX = /sshd\[\d+\]: Failed password for (invalid user )?(\S+) from (\d+\.\d+\.\d+\.\d+) port (\d+)/;
-const SSH_INVALID_REGEX = /sshd\[\d+\]: Invalid user (\S+) from (\d+\.\d+\.\d+\.\d+) port (\d+)/;
-const SSH_ACCEPTED_REGEX = /sshd\[\d+\]: Accepted (password|publickey) for (\S+) from (\d+\.\d+\.\d+\.\d+) port (\d+)/;
+// IMPORTANTE: en Ubuntu 24.04+ el proceso de sesión se llama "sshd-session[PID]",
+// mientras que en versiones anteriores era "sshd[PID]". Se aceptan ambas variantes.
+const SSH_FAILED_REGEX = /sshd(?:-session)?\[\d+\]: Failed password for (invalid user )?(\S+) from (\d+\.\d+\.\d+\.\d+) port (\d+)/;
+const SSH_INVALID_REGEX = /sshd(?:-session)?\[\d+\]: Invalid user (\S+) from (\d+\.\d+\.\d+\.\d+) port (\d+)/;
+const SSH_ACCEPTED_REGEX = /sshd(?:-session)?\[\d+\]: Accepted (password|publickey) for (\S+) from (\d+\.\d+\.\d+\.\d+) port (\d+)/;
+
+// =========================================================================
+// 0. CORS (por si el Frontend llama directo sin pasar por Nginx/Vite proxy)
+// =========================================================================
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 // =========================================================================
 // 1. Ejecutor de Reglas UFW Firewall
 // =========================================================================
-class UfwFirewallManager {
-  static banIp(ip, reason = 'bannedbyabrejeet') {
-    const cmd = `ufw insert 1 deny from ${ip} to any port 22 comment 'bannedbyabrejeet:${reason}'`;
-    console.log(`\n🛡️ [UFW EXEC BAN] ${cmd}`);
+/**
+ * Ejecuta un comando y devuelve {code, stdout, stderr}.
+ */
+function runCommand(cmd) {
+  return new Promise((resolve) => {
     exec(cmd, (err, stdout, stderr) => {
-      if (err) {
-        console.error(`❌ [UFW ERROR] No se pudo banear ${ip} (¿tienes permisos sudo?):`, stderr.trim());
-        return;
-      }
-      console.log(`✅ [UFW ÉXITO] IP ${ip} BLOQUEADA en el puerto 22. Regla añadida al kernel.`);
+      resolve({
+        code: err ? (err.code ?? 1) : 0,
+        stdout: (stdout || '').trim(),
+        stderr: (stderr || '').trim()
+      });
     });
+  });
+}
+
+class UfwFirewallManager {
+  /**
+   * BANEAR una IP.
+   * - No duplica reglas si la IP ya está bloqueada.
+   * - Si 'ufw insert 1' falla por posición inválida (ruleset vacío), cae a 'ufw deny'.
+   * - Verifica el resultado y devuelve el detalle (se publica en Redis).
+   */
+  static async banIp(ip, reason = 'bannedbyabrejeet') {
+    const existing = await UfwFirewallManager.findRulesForIp(ip);
+    if (existing.length > 0) {
+      console.log(`⚠️ [UFW] La IP ${ip} ya tiene ${existing.length} regla(s) activa(s). No se duplica.`);
+      return { ok: true, skipped: true, rules: existing.length, removed: 0 };
+    }
+
+    let res = await runCommand(
+      `ufw insert 1 deny from ${ip} to any port 22 comment 'bannedbyabrejeet:${reason}'`
+    );
+
+    // Si no hay reglas previas, la posición 1 no existe -> ufw appendea al final
+    if (res.code !== 0 && /invalid position/i.test(`${res.stderr} ${res.stdout}`)) {
+      console.log(`⚠️ [UFW] No hay posición 1 libre -> se usa 'ufw deny' (regla al final).`);
+      res = await runCommand(
+        `ufw deny from ${ip} to any port 22 comment 'bannedbyabrejeet:${reason}'`
+      );
+    }
+
+    if (res.code !== 0) {
+      const detalle = `${res.stderr || res.stdout}`.trim();
+      console.error(`❌ [UFW ERROR] No se pudo banear ${ip} (¿tienes permisos sudo?):`, detalle);
+      return { ok: false, error: detalle, removed: 0 };
+    }
+
+    // Verificación: la regla tiene que existir de verdad
+    const after = await UfwFirewallManager.findRulesForIp(ip);
+    if (after.length === 0) {
+      console.error(`❌ [UFW VERIFY] El comando terminó bien, pero la regla de ${ip} NO aparece en 'ufw status'.`);
+      return { ok: false, error: 'La regla no aparece en ufw status después de insertarla', removed: 0 };
+    }
+
+    console.log(`✅ [UFW ÉXITO] IP ${ip} BLOQUEADA en el puerto 22. Regla añadida al kernel.`);
+    return { ok: true, skipped: false, rules: after.length, removed: 0 };
   }
 
-  static unbanIp(ip) {
-    const cmd = `ufw delete deny from ${ip} to any port 22`;
-    console.log(`\n🔓 [UFW EXEC UNBAN] ${cmd}`);
-    exec(cmd, (err, stdout, stderr) => {
-      if (err) {
-        console.error(`❌ [UFW ERROR] No se pudo desbanear ${ip}:`, stderr.trim());
-        return;
+  /**
+   * DESBANEAR una IP.
+   * Borra TODAS las reglas de esa IP (por posición, de mayor a menor) y
+   * VERIFICA que la IP quedo libre. Esto evita el bug clasico de ufw, donde
+   * un delete por especificacion no matchea la regla insertada con comment
+   * y la IP sigue bloqueada.
+   */
+  static async unbanIp(ip) {
+    const rules = await UfwFirewallManager.findRulesForIp(ip);
+
+    if (rules.length === 0) {
+      console.log(`ℹ️ [UFW] La IP ${ip} no tiene ninguna regla activa: ya estaba libre.`);
+      // Igual intentamos el delete por especificación (por si el parser se perdió algo)
+      await runCommand(`ufw delete deny from ${ip} to any port 22`);
+      return { ok: true, alreadyFree: true, removed: 0, remaining: 0 };
+    }
+
+    console.log(`🔓 [UFW EXEC UNBAN] ${rules.length} regla(s) encontrada(s) para ${ip}`);
+
+    // Estrategia 1: delete por especificacion (funciona en el ufw real Y en el shim)
+    const specRes = await runCommand(`ufw delete deny from ${ip} to any port 22`);
+    let removed = specRes.code === 0 ? 1 : 0;
+    if (specRes.code === 0) {
+      console.log(`   ↳ regla eliminada por especificación`);
+    }
+
+    // Estrategia 2: delete por posicion, de mayor a menor (ufw real)
+    const ordered = [...rules].sort((a, b) => b.id - a.id);
+    for (const rule of ordered) {
+      const res = await runCommand(`ufw --force delete ${rule.id}`);
+      if (res.code === 0) {
+        removed++;
+        console.log(`   ↳ regla [${rule.id}] eliminada por posición`);
+      } else {
+        const detalle = `${res.stderr || res.stdout}`.trim();
+        // "non-existent" es normal (ya se borró por especificación)
+        if (!/non-existent/i.test(detalle)) {
+          console.error(`❌ [UFW ERROR] No se pudo eliminar la regla [${rule.id}] de ${ip}:`, detalle);
+        }
       }
-      console.log(`✅ [UFW ÉXITO] Regla de bloqueo para IP ${ip} eliminada de UFW.`);
+    }
+
+    // Estrategia 3: delete por posicion SIN --force (compatibilidad con versiones viejas de ufw)
+    for (const rule of ordered) {
+      const res = await runCommand(`ufw delete ${rule.id}`);
+      if (res.code === 0) removed++;
+    }
+
+    // Verificación final
+    const after = await UfwFirewallManager.findRulesForIp(ip);
+    const remaining = after.length;
+
+    if (remaining === 0) {
+      console.log(`✅ [UFW ÉXITO] Regla de bloqueo para IP ${ip} eliminada de UFW (${removed} borrada(s)).`);
+      return { ok: true, alreadyFree: false, removed, remaining: 0 };
+    }
+
+    console.error(`❌ [UFW VERIFY] La IP ${ip} SIGUE bloqueada: quedan ${remaining} regla(s).`);
+    return {
+      ok: false,
+      removed,
+      remaining,
+      error: `Persisten ${remaining} regla(s) de UFW para ${ip}`
+    };
+  }
+
+  /**
+   * Lee el estado real de UFW y lo devuelve ya parseado.
+   * Funciona igual con UFW activo o inactivo (en inactivo igual lista las reglas).
+   */
+  static async listRules() {
+    const res = await runCommand('ufw status numbered');
+    const raw = res.stdout || '';
+    const active = /Status:\s*active/i.test(raw);
+    const rules = [];
+
+    // Ej: "[ 1] 22                         DENY IN     203.0.113.77   # bannedbyabrejeet:ssh"
+    const ruleRegex = /^\[\s*(\d+)\]\s+(\S+)\s+(DENY|ALLOW|REJECT|LIMIT)(?:\s+(?:IN|OUT))?\s+(.*)$/;
+
+    raw.split('\n').forEach((line) => {
+      const m = line.match(ruleRegex);
+      if (!m) return;
+
+      let rest = m[4].trim();
+      // El comentario de ufw viene al final tras '#'
+      let comment = '';
+      const hashIndex = rest.indexOf('#');
+      if (hashIndex !== -1) {
+        comment = rest.slice(hashIndex + 1).trim();
+        rest = rest.slice(0, hashIndex).trim();
+      }
+
+      const from = rest.trim();
+      const port = m[2].split('/')[0];
+
+      rules.push({
+        id: parseInt(m[1], 10),
+        action: m[3],
+        fromIp: from === 'Anywhere' ? '0.0.0.0/0' : from,
+        toPort: parseInt(port, 10) || 22,
+        comment,
+        active: true
+      });
     });
+
+    return { active, rules, raw };
+  }
+
+  /**
+   * Todas las reglas que bloquean a una IP concreta.
+   */
+  static async findRulesForIp(ip) {
+    try {
+      const { rules } = await UfwFirewallManager.listRules();
+      return rules.filter((r) => r.fromIp === ip);
+    } catch (err) {
+      console.error('[UFW LIST ERROR]', err.message);
+      return [];
+    }
   }
 }
 
 // =========================================================================
-// 2. Evaluador de Ataques y Reglas de Fallo (Issue #7 Core)
+// 2. Persistencia de eventos en Redis (para que el Frontend los muestre)
 // =========================================================================
-async function processSshLogLine(line) {
-  if (!line || !line.trim()) return;
+async function recordLogEvent(event) {
+  try {
+    await redisClient.lPush(K_LOGS, JSON.stringify(event));
+    await redisClient.lTrim(K_LOGS, 0, MAX_HISTORY - 1);
+  } catch (err) {
+    console.error('[REDIS WRITE ERROR logs]', err.message);
+  }
+}
 
-  // 1. ¿Es login aceptado?
+async function recordUfwOperation(op) {
+  try {
+    await redisClient.lPush('security:ufw_ops', JSON.stringify(op));
+    await redisClient.lTrim('security:ufw_ops', 0, 49);
+  } catch (err) {
+    console.error('[REDIS WRITE ERROR ufw_ops]', err.message);
+  }
+}
+
+async function recordPubSubMessage(message) {
+  try {
+    await redisClient.lPush(K_PUBSUB, JSON.stringify(message));
+    await redisClient.lTrim(K_PUBSUB, 0, MAX_HISTORY - 1);
+  } catch (err) {
+    console.error('[REDIS WRITE ERROR pubsub]', err.message);
+  }
+}
+
+/**
+ * Parsea una linea de auth.log al mismo formato que usa el Frontend.
+ * Devuelve null si la linea no es relevante para la seguridad SSH.
+ */
+function parseSshLogLine(line) {
+  if (!line || !line.trim()) return null;
+
+  let eventType = null;
+  let user = null;
+  let ip = null;
+  let port = 22;
+
   const acceptMatch = line.match(SSH_ACCEPTED_REGEX);
   if (acceptMatch) {
-    const user = acceptMatch[2];
-    const ip = acceptMatch[3];
-    console.log(`🔑 [LOGIN VÁLIDO] Usuario '${user}' autenticado exitosamente desde ${ip}. (Sin penalización)`);
-    return;
-  }
-
-  // 2. ¿Es fallo de contraseña o usuario inválido?
-  let ip = null;
-  let user = null;
-
-  const failMatch = line.match(SSH_FAILED_REGEX);
-  if (failMatch) {
-    user = failMatch[2] || 'desconocido';
-    ip = failMatch[3];
+    eventType = 'ACCEPTED_KEY';
+    user = acceptMatch[2];
+    ip = acceptMatch[3];
+    port = parseInt(acceptMatch[4], 10);
   } else {
+    const failMatch = line.match(SSH_FAILED_REGEX);
     const invMatch = line.match(SSH_INVALID_REGEX);
-    if (invMatch) {
+    if (failMatch) {
+      eventType = 'FAILED_PASSWORD';
+      user = failMatch[2] || 'desconocido';
+      ip = failMatch[3];
+      port = parseInt(failMatch[4], 10);
+    } else if (invMatch) {
+      eventType = 'INVALID_USER';
       user = invMatch[1];
       ip = invMatch[2];
+      port = parseInt(invMatch[3], 10);
     }
   }
 
-  if (!ip) return; // Línea irrelevante para SSH auth
+  if (!ip) return null;
 
-  // 3. Verificar Whitelist
-  const isWhitelisted = await redisClient.sIsMember('config:whitelist', ip);
+  const epoch = Date.now();
+  return {
+    id: `log-${epoch}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date(epoch).toISOString().replace('T', ' ').substring(0, 19),
+    epoch,
+    ip,
+    user: user || 'unknown',
+    port,
+    eventType,
+    service: 'sshd',
+    rawLog: line.trim()
+  };
+}
+
+// =========================================================================
+// 3. Evaluador de Ataques y Reglas de Fallo (Issue #7 Core)
+// =========================================================================
+async function processSshLogLine(line) {
+  if (!line || !line.trim()) return null;
+
+  const event = parseSshLogLine(line);
+
+  // 1. ¿Es login aceptado?
+  if (event && event.eventType === 'ACCEPTED_KEY') {
+    console.log(`🔑 [LOGIN VÁLIDO] Usuario '${event.user}' autenticado exitosamente desde ${event.ip}. (Sin penalización)`);
+    event.actionTaken = 'LOGGED_SUCCESS';
+    event.decisionSummary = `Acceso concedido exitosamente para '${event.user}'. No se suma ninguna infracción.`;
+    await recordLogEvent(event);
+    return { event, banTriggered: false, failureCount: 0 };
+  }
+
+  // Linea no relacionada con SSH auth
+  if (!event) return null;
+
+  // 2. Verificar Whitelist
+  const isWhitelisted = await redisClient.sIsMember('config:whitelist', event.ip);
   if (isWhitelisted) {
-    console.log(`🛡️ [WHITELIST] Intento fallido de IP protegida ${ip} (Usuario: ${user}). Ignorado sin sanción.`);
-    return;
+    console.log(`🛡️ [WHITELIST] Intento fallido de IP protegida ${event.ip} (Usuario: ${event.user}). Ignorado sin sanción.`);
+    event.actionTaken = 'IGNORED_WHITELIST';
+    event.decisionSummary = `La IP ${event.ip} está en la Lista Blanca. El fallo fue perdonado e ignorado.`;
+    event.isWhitelisted = true;
+    await recordLogEvent(event);
+    return { event, banTriggered: false, failureCount: 0 };
   }
 
-  // 4. Verificar si ya está baneada
-  const isBanned = await redisClient.hExists('ip:banned', ip);
+  // 3. Verificar si ya está baneada
+  const isBanned = await redisClient.hExists(K_BANNED, event.ip);
   if (isBanned) {
-    console.log(`⚠️ [IP YA BANEADA] ${ip} sigue intentando ingresar.`);
-    return;
+    console.log(`⚠️ [IP YA BANEADA] ${event.ip} sigue intentando ingresar.`);
+    event.actionTaken = 'THRESHOLD_EXCEEDED_BANNED';
+    event.decisionSummary = `La IP ${event.ip} ya está bloqueada en el Firewall.`;
+    event.triggeredBan = true;
+    await recordLogEvent(event);
+    return { event, banTriggered: false, failureCount: 0, alreadyBanned: true };
   }
 
-  // 5. Consultar configuración en Redis
+  // 4. Consultar configuración en Redis
   const settings = await redisClient.hGetAll('config:settings');
   const maxRetries = parseInt(settings.max_retries || '5', 10);
   const findTimeMin = parseInt(settings.findtime_min || '10', 10);
   const banTimeMin = parseInt(settings.ban_time_min || '60', 10);
 
-  const key = `ip:failures:${ip}`;
+  const key = `${K_FAILURES_PREFIX}${event.ip}`;
   const now = Date.now();
 
   // Guardar timestamp del fallo con TTL de ventana (Findtime)
@@ -125,38 +377,86 @@ async function processSshLogLine(line) {
   const attempts = await redisClient.lRange(key, 0, -1);
   const validAttempts = attempts.filter((t) => now - parseInt(t, 10) <= findTimeMin * 60 * 1000);
 
-  console.log(`⚠️ [FALLO COMPUTADO] IP: ${ip} | Faltas: ${validAttempts.length}/${maxRetries} | User: ${user}`);
+  console.log(`⚠️ [FALLO COMPUTADO] IP: ${event.ip} | Faltas: ${validAttempts.length}/${maxRetries} | User: ${event.user}`);
 
-  // 6. ¿Superó el umbral de reintentos?
+  event.failuresInWindowBefore = Math.max(0, validAttempts.length - 1);
+  event.failuresInWindowAfter = validAttempts.length;
+  event.maxRetriesAllowed = maxRetries;
+  event.windowMinutes = findTimeMin;
+
+  // 5. ¿Superó el umbral de reintentos?
+  let banTriggered = false;
   if (validAttempts.length >= maxRetries) {
-    console.warn(`\n🔥 [AMENAZA CONFIRMADA] IP ${ip} superó ${maxRetries} intentos en ${findTimeMin}m. ¡APLICANDO BAN!`);
+    console.warn(`\n🔥 [AMENAZA CONFIRMADA] IP ${event.ip} superó ${maxRetries} intentos en ${findTimeMin}m. ¡APLICANDO BAN!`);
 
     const banRecord = {
-      ip,
+      ip: event.ip,
       banned_at: now,
       expires_at: now + banTimeMin * 60 * 1000,
       attempts: validAttempts.length,
-      last_user: user,
+      last_user: event.user,
       reason: `Superó el límite de ${maxRetries} reintentos en ${findTimeMin} minutos`
     };
 
     // Guardar registro de baneo en Redis
-    await redisClient.hSet('ip:banned', ip, JSON.stringify(banRecord));
+    await redisClient.hSet(K_BANNED, event.ip, JSON.stringify(banRecord));
 
     // Ejecutar bloqueo en el cortafuegos de Linux
-    UfwFirewallManager.banIp(ip, 'ssh_bruteforce');
+    const ufwResult = await UfwFirewallManager.banIp(event.ip, 'ssh_bruteforce');
+    await recordUfwOperation({
+      action: 'BAN',
+      ip: event.ip,
+      ok: !!ufwResult.ok,
+      skipped: !!ufwResult.skipped,
+      removed: ufwResult.removed || 0,
+      remaining: ufwResult.rules || 0,
+      error: ufwResult.error || null,
+      timestamp: now
+    });
 
     // Limpiar historial de fallos de la IP
     await redisClient.del(key);
+
+    banTriggered = true;
+    event.actionTaken = 'THRESHOLD_EXCEEDED_BANNED';
+    event.triggeredBan = true;
+    event.decisionSummary = `Se superó el límite de seguridad (${validAttempts.length} de ${maxRetries} fallos dentro de la ventana de ${findTimeMin} min). El motor bloqueó la IP de inmediato en el Firewall.`;
+
+    // Publicar el evento de baneo para que aparezca en el Dashboard
+    await recordPubSubMessage({
+      id: `pubsub-${now}`,
+      channel: 'channel:unban_events',
+      sender: 'Express_Security_Engine',
+      payload: {
+        action: 'BAN',
+        ip: event.ip,
+        timestamp: now,
+        reason: banRecord.reason
+      }
+    });
+  } else {
+    event.actionTaken = 'RECORDED_FAILURE_PENDING';
+    const remaining = Math.max(0, maxRetries - validAttempts.length);
+    event.decisionSummary = `Intento fallido registrado (${validAttempts.length} de ${maxRetries} tolerados en ${findTimeMin} min). Le quedan ${remaining} ${remaining === 1 ? 'intento' : 'intentos'} antes de ser bloqueado.`;
   }
+
+  await recordLogEvent(event);
+  return { event, banTriggered, failureCount: validAttempts.length };
 }
 
 // =========================================================================
-// 3. Lector continuo de /var/log/auth.log (Syslog Tail)
+// 4. Lector continuo de /var/log/auth.log (Syslog Tail)
 // =========================================================================
 function startLogWatcher() {
   if (!fs.existsSync(LOG_PATH)) {
     console.warn(`[AVISO LOG] Archivo ${LOG_PATH} no encontrado aún. El endpoint de simulación HTTP está activo para pruebas.`);
+    return;
+  }
+
+  try {
+    fs.statSync(LOG_PATH);
+  } catch (err) {
+    console.warn(`[AVISO LOG] Sin permisos de lectura sobre ${LOG_PATH} (${err.code}). El endpoint de simulación HTTP está activo para pruebas.`);
     return;
   }
 
@@ -178,17 +478,28 @@ function startLogWatcher() {
 }
 
 // =========================================================================
-// 4. Suscriptor Redis Pub/Sub para Desbaneo Desacoplado
+// 5. Suscriptor Redis Pub/Sub para Desbaneo Desacoplado
 // =========================================================================
 async function initPubSub() {
   await subClient.connect();
-  await subClient.subscribe(UNBAN_CHANNEL, (message) => {
+  await subClient.subscribe(UNBAN_CHANNEL, async (message) => {
     try {
       const data = JSON.parse(message);
       console.log(`\n📬 [REDIS PUBSUB] Mensaje recibido en '${UNBAN_CHANNEL}':`, data);
       if (data.action === 'UNBAN' && data.ip) {
         console.log(`⚡ Ejecutando orden de desbaneo para: ${data.ip} (Solicitado por: ${data.operator || 'Admin'})`);
-        UfwFirewallManager.unbanIp(data.ip);
+        const ufwResult = await UfwFirewallManager.unbanIp(data.ip);
+        await recordUfwOperation({
+          action: 'UNBAN',
+          ip: data.ip,
+          ok: !!ufwResult.ok,
+          skipped: !!ufwResult.alreadyFree,
+          removed: ufwResult.removed || 0,
+          remaining: ufwResult.remaining || 0,
+          error: ufwResult.error || null,
+          timestamp: Date.now(),
+          operator: data.operator || 'Admin'
+        });
       }
     } catch (e) {
       console.error('[REDIS PUBSUB ERROR]', e);
@@ -198,7 +509,7 @@ async function initPubSub() {
 }
 
 // =========================================================================
-// 5. Endpoints HTTP del Backend B (Health & Simulador)
+// 6. Endpoints HTTP del Backend B (Estado real para el Frontend)
 // =========================================================================
 app.get('/api/security/health', (req, res) => {
   res.json({
@@ -209,18 +520,156 @@ app.get('/api/security/health', (req, res) => {
   });
 });
 
+// Desbaneo directo (bypass de Pub/Sub): util para diagnostico y para cuando
+// el canal de Redis no llega al Backend B. Ejecuta el 'ufw delete' de inmediato.
+app.post('/api/security/unban', async (req, res) => {
+  const ip = (req.body && req.body.ip) || '';
+  if (!ip) {
+    return res.status(400).json({ error: 'Falta campo ip' });
+  }
+  try {
+    const result = await UfwFirewallManager.unbanIp(ip);
+    await recordUfwOperation({
+      action: 'UNBAN_DIRECT',
+      ip,
+      ok: !!result.ok,
+      skipped: !!result.alreadyFree,
+      removed: result.removed || 0,
+      remaining: result.remaining || 0,
+      error: result.error || null,
+      timestamp: Date.now(),
+      operator: 'Direct (Backend B)'
+    });
+    return res.json({
+      message: result.ok
+        ? `IP ${ip} desbaneada. ${result.removed} regla(s) eliminada(s), ${result.remaining} restante(s).`
+        : `No se pudo desbanear ${ip}: ${result.error || 'error desconocido'}`,
+      result
+    });
+  } catch (err) {
+    console.error('[UNBAN DIRECT ERROR]', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Endpoint para probar líneas de log directamente desde la interfaz web o curl
 app.post('/api/security/simulate-log', async (req, res) => {
   const { log_line } = req.body;
   if (!log_line) {
     return res.status(400).json({ error: 'Falta campo log_line' });
   }
-  await processSshLogLine(log_line);
-  res.json({ message: 'Log procesado por el motor de seguridad', log: log_line });
+  try {
+    const result = await processSshLogLine(log_line);
+    res.json({
+      message: 'Log procesado por el motor de seguridad',
+      log: log_line,
+      event: result ? result.event : null,
+      banTriggered: result ? result.banTriggered : false,
+      failureCount: result ? result.failureCount : 0
+    });
+  } catch (err) {
+    console.error('[SIMULATE ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Lectura del estado real (lo consume el Frontend) ---
+
+app.get('/api/security/logs', async (req, res) => {
+  try {
+    const raw = await redisClient.lRange(K_LOGS, 0, MAX_HISTORY - 1);
+    const logs = raw.map((r) => { try { return JSON.parse(r); } catch { return null; } }).filter(Boolean);
+    res.json({ logs, total: logs.length });
+  } catch (err) {
+    res.status(503).json({ error: err.message, logs: [] });
+  }
+});
+
+app.get('/api/security/banned', async (req, res) => {
+  try {
+    const raw = await redisClient.hGetAll(K_BANNED);
+    const banned = Object.entries(raw).map(([ip, value]) => {
+      let record = {};
+      try { record = JSON.parse(value); } catch { record = { reason: value }; }
+      return { ip, ...record };
+    });
+    res.json({ banned, total: banned.length });
+  } catch (err) {
+    res.status(503).json({ error: err.message, banned: [] });
+  }
+});
+
+app.get('/api/security/failures', async (req, res) => {
+  try {
+    const keys = await redisClient.keys(`${K_FAILURES_PREFIX}*`);
+    const failures = [];
+    for (const key of keys) {
+      const ip = key.slice(K_FAILURES_PREFIX.length);
+      const timestamps = (await redisClient.lRange(key, 0, -1)).map((t) => parseInt(t, 10));
+      const ttl = await redisClient.ttl(key);
+      failures.push({
+        ip,
+        timestamps,
+        firstSeen: timestamps.length ? Math.min(...timestamps) : Date.now(),
+        lastSeen: timestamps.length ? Math.max(...timestamps) : Date.now(),
+        totalAttempts: timestamps.length,
+        ttlSeconds: ttl,
+        targetedUsers: []
+      });
+    }
+    res.json({ failures, total: failures.length });
+  } catch (err) {
+    res.status(503).json({ error: err.message, failures: [] });
+  }
+});
+
+app.get('/api/security/pubsub', async (req, res) => {
+  try {
+    const raw = await redisClient.lRange(K_PUBSUB, 0, MAX_HISTORY - 1);
+    const messages = raw.map((r) => { try { return JSON.parse(r); } catch { return null; } }).filter(Boolean);
+    res.json({ messages, total: messages.length });
+  } catch (err) {
+    res.status(503).json({ error: err.message, messages: [] });
+  }
+});
+
+app.get('/api/security/ufw-ops', async (req, res) => {
+  try {
+    const raw = await redisClient.lRange('security:ufw_ops', 0, 49);
+    const operations = raw.map((r) => { try { return JSON.parse(r); } catch { return null; } }).filter(Boolean);
+    res.json({ operations, total: operations.length });
+  } catch (err) {
+    res.status(503).json({ error: err.message, operations: [] });
+  }
+});
+
+app.get('/api/security/ufw-rules', async (req, res) => {
+  const { active, rules, raw } = await UfwFirewallManager.listRules();
+  res.json({ active, rules, raw, total: rules.length });
+});
+
+app.get('/api/security/stats', async (req, res) => {
+  try {
+    const [bannedRaw, logCount, pubCount] = await Promise.all([
+      redisClient.hLen(K_BANNED),
+      redisClient.lLen(K_LOGS),
+      redisClient.lLen(K_PUBSUB)
+    ]);
+    const failureKeys = await redisClient.keys(`${K_FAILURES_PREFIX}*`);
+    res.json({
+      banned: bannedRaw,
+      logs: logCount,
+      pubsub: pubCount,
+      activeFailures: failureKeys.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
 });
 
 // =========================================================================
-// 6. Arranque del Servidor
+// 7. Arranque del Servidor
 // =========================================================================
 async function bootstrap() {
   try {

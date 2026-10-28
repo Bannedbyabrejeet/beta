@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Shim de UFW para MODO LOCAL (no requiere sudo).
+# NO toca el firewall real de la máquina: las reglas "simuladas" quedan en
+# local-dev/ufw-rules.log, para poder ver el flujo completo del motor de
+# seguridad (ban / unban) sin privilegios de administrador.
+#
+# Soporta los mismos comandos que usa el Backend B:
+#   ufw insert <N> deny from <IP> to any port <P> comment '...'
+#   ufw deny from <IP> to any port <P> comment '...'
+#   ufw delete deny from <IP> to any port <P>
+#   ufw --force delete <N>
+#   ufw delete <N>
+#   ufw status numbered
+# =============================================================================
+set -u
+
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RULES_FILE="$BASE_DIR/ufw-rules.log"
+touch "$RULES_FILE"
+
+# Copiar los argumentos a un array propio
+all=("$@")
+
+# Eliminar una posible opcion "--force" al principio
+if [ "${all[0]:-}" = "--force" ]; then
+    all=("${all[@]:1}")
+fi
+
+cmd="${all[0]:-}"
+# rest = todos los args excepto el primero (cmd)
+if [ ${#all[@]} -gt 1 ]; then
+    rest=("${all[@]:1}")
+else
+    rest=()
+fi
+
+extract_ip() {
+    local prev=""
+    for a in "$@"; do
+        if [ "$prev" = "from" ]; then echo "$a"; return 0; fi
+        prev="$a"
+    done
+    echo ""
+}
+
+case "$cmd" in
+    insert)
+        ip="$(extract_ip "${rest[@]}")"
+        if [ -z "$ip" ]; then echo "Error: no se pudo determinar la IP" >&2; exit 1; fi
+        if grep -qF " $ip" "$RULES_FILE"; then
+            echo "Skipping adding existing rule"; exit 0
+        fi
+        echo "22 DENY IN $ip" >> "$RULES_FILE"
+        echo "Rule inserted"; exit 0
+        ;;
+    deny)
+        ip="$(extract_ip "${rest[@]}")"
+        if [ -z "$ip" ]; then echo "Error: no se pudo determinar la IP" >&2; exit 1; fi
+        if grep -qF " $ip" "$RULES_FILE"; then
+            echo "Skipping adding existing rule"; exit 0
+        fi
+        echo "22 DENY IN $ip" >> "$RULES_FILE"
+        echo "Rule added"; exit 0
+        ;;
+    delete)
+        # delete por posicion: "delete <N>"
+        if [ ${#rest[@]} -ge 1 ] && [[ "${rest[0]}" =~ ^[0-9]+$ ]]; then
+            n="${rest[0]}"
+            # borrar la linea N del archivo (1-indexada)
+            line_no=1
+            tmp="$RULES_FILE.tmp"
+            : > "$tmp"
+            i=0
+            found=0
+            while IFS= read -r line; do
+                i=$((i+1))
+                if [ "$i" = "$n" ]; then
+                    found=1
+                    continue
+                fi
+                echo "$line" >> "$tmp"
+            done < "$RULES_FILE"
+            if [ "$found" = "1" ]; then
+                mv "$tmp" "$RULES_FILE"
+                echo "Rule deleted"; exit 0
+            fi
+            rm -f "$tmp"
+            echo "Could not delete non-existent rule"; exit 1
+        fi
+        # delete por especificacion: "delete deny from IP to any port 22"
+        ip="$(extract_ip "${rest[@]}")"
+        if [ -z "$ip" ]; then echo "Error: no se pudo determinar la IP" >&2; exit 1; fi
+        if grep -qF " $ip" "$RULES_FILE"; then
+            grep -vF " $ip" "$RULES_FILE" > "$RULES_FILE.tmp" || true
+            mv "$RULES_FILE.tmp" "$RULES_FILE"
+            echo "Rule deleted"; exit 0
+        fi
+        echo "Could not delete non-existent rule"; exit 1
+        ;;
+    status)
+        echo "Status: active (SIMULADO - modo local, sin sudo)"
+        echo ""
+        printf "%-6s %-12s %-12s %s\n" "[ # ]" "To" "Action" "From"
+        i=1
+        while read -r line; do
+            [ -z "$line" ] && continue
+            port=$(echo "$line" | awk '{print $1}')
+            action=$(echo "$line" | awk '{print $2}')
+            ip=$(echo "$line" | awk '{print $4}')
+            printf "[%2d] %-12s %-12s %s\n" "$i" "$port" "$action" "$ip"
+            i=$((i + 1))
+        done < "$RULES_FILE"
+        exit 0
+        ;;
+    *)
+        echo "ufw-shim(local): el comando '$cmd' no está soportado en modo local" >&2
+        exit 1
+        ;;
+esac

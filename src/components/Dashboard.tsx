@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { securityEngine } from '../services/securityEngine';
-import { SystemConfig, SshLogEvent, BannedIp, EventType } from '../types';
+import { SystemConfig, SshLogEvent, BannedIp, EventType, UfwRuleEntry } from '../types';
 
 interface DashboardProps {
   onOpenAttackModal: () => void;
@@ -65,12 +65,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [whitelist, setWhitelist] = useState<string[]>(securityEngine.getWhitelist());
   const [logs, setLogs] = useState<SshLogEvent[]>(securityEngine.getLogs());
   const [bannedIps, setBannedIps] = useState<BannedIp[]>(securityEngine.getBannedIps());
+  const [ufwRules, setUfwRules] = useState<UfwRuleEntry[]>(securityEngine.getUfwRules());
+  const [ufwOperations, setUfwOperations] = useState<any[]>(securityEngine.getUfwOperations());
   const [adminUser, setAdminUser] = useState(securityEngine.getAdminUser());
 
   // Form states for settings
   const [formConfig, setFormConfig] = useState<SystemConfig>(config);
   const [newWhitelistIp, setNewWhitelistIp] = useState<string>('');
   const [whitelistMsg, setWhitelistMsg] = useState<{ text: string; isError: boolean } | null>(null);
+  const [unbanMsg, setUnbanMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [configSavedNotice, setConfigSavedNotice] = useState<boolean>(false);
 
   // Filter states for logs
@@ -92,6 +95,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setWhitelist(securityEngine.getWhitelist());
       setLogs(securityEngine.getLogs());
       setBannedIps(securityEngine.getBannedIps());
+      setUfwRules(securityEngine.getUfwRules());
+      setUfwOperations(securityEngine.getUfwOperations());
       setAdminUser(securityEngine.getAdminUser());
     });
     return unsubscribe;
@@ -112,46 +117,48 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [tokenTtl]);
 
   // Handle saving configuration (FastAPI / Service 1)
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    securityEngine.updateConfig(formConfig);
+    await securityEngine.updateConfig(formConfig);
     setConfigSavedNotice(true);
     setTimeout(() => setConfigSavedNotice(false), 3000);
   };
 
   // Handle adding to whitelist
-  const handleAddWhitelist = (e: React.FormEvent) => {
+  const handleAddWhitelist = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWhitelistIp.trim()) return;
-    const res = securityEngine.addToWhitelist(newWhitelistIp.trim());
+    const res = await securityEngine.addToWhitelist(newWhitelistIp.trim());
     setWhitelistMsg({ text: res.message, isError: !res.success });
     if (res.success) setNewWhitelistIp('');
     setTimeout(() => setWhitelistMsg(null), 4000);
   };
 
   // Handle removing from whitelist
-  const handleRemoveWhitelist = (ip: string) => {
-    const res = securityEngine.removeFromWhitelist(ip);
+  const handleRemoveWhitelist = async (ip: string) => {
+    const res = await securityEngine.removeFromWhitelist(ip);
     setWhitelistMsg({ text: res.message, isError: !res.success });
     setTimeout(() => setWhitelistMsg(null), 4000);
   };
 
-  // Handle unban via Redis Pub/Sub
-  const handleUnban = (ip: string) => {
-    securityEngine.unbanIp(ip, 'Manual unban triggered via Operator Console');
+  // Handle unban via Redis Pub/Sub (con verificacion real contra UFW)
+  const handleUnban = async (ip: string) => {
+    const res = await securityEngine.unbanIp(ip, 'Manual unban triggered via Operator Console');
+    setUnbanMsg({ text: res.message, isError: !res.success });
+    setTimeout(() => setUnbanMsg(null), 10000);
   };
 
   // Handle password reset token request (Redis TTL)
-  const handleGenerateResetToken = () => {
-    const res = securityEngine.generatePasswordResetToken(resetEmail);
+  const handleGenerateResetToken = async () => {
+    const res = await securityEngine.generatePasswordResetToken(resetEmail);
     setGeneratedToken(res.token);
     setTokenTtl(res.ttlSeconds);
     setResetSuccessMsg(null);
   };
 
-  const handleConfirmPasswordReset = () => {
+  const handleConfirmPasswordReset = async () => {
     if (!generatedToken || !newPassword) return;
-    const res = securityEngine.completePasswordReset(generatedToken, newPassword);
+    const res = await securityEngine.completePasswordReset(generatedToken, newPassword);
     if (res.success) {
       setResetSuccessMsg(res.message);
       setGeneratedToken(null);
@@ -161,11 +168,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
-  // Handle testing custom log
-  const handleTestCustomLog = (logLine?: string) => {
+  // Handle testing custom log (procesado por el motor real del Backend B)
+  const handleTestCustomLog = async (logLine?: string) => {
     const lineToTest = logLine || testLogInput;
     if (!lineToTest.trim()) return;
-    const res = securityEngine.ingestSshLog(lineToTest.trim());
+    const res = await securityEngine.ingestSshLog(lineToTest.trim());
     setTestLogResult(res);
   };
 
@@ -565,6 +572,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* 2. Sub-view: Active Banned IPs & UFW Rule Manager */}
       {/* ========================================================================= */}
       {subView === 'banned' && (
+        <>
+        {unbanMsg && (
+          <div className={`mb-4 p-3 rounded-lg text-xs font-mono ${
+            unbanMsg.isError ? 'bg-rose-950/40 border border-rose-500/30 text-rose-300' : 'bg-teal-950/40 border border-teal-500/30 text-teal-300'
+          }`}>
+            {unbanMsg.text}
+          </div>
+        )}
         <div className="space-y-6">
           <div className="p-6 rounded-2xl bg-[#0f0f0f] border border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
@@ -654,8 +669,83 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 )}
               </tbody>
             </table>
+
+            {/* Estado REAL del firewall (leído con 'ufw status numbered' por el Backend B) */}
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <div className="flex items-center gap-2.5 mb-1">
+                <ShieldAlert className="w-4 h-4 text-rose-400" />
+                <h3 className="text-sm font-bold text-white">Reglas UFW Activas en el Firewall</h3>
+                <span className="text-[10px] font-mono text-slate-500">
+                  (lectura real: <code className="text-amber-400">ufw status numbered</code>)
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mb-3">
+                Esta es la verdad del firewall. Si una IP aparece acá, sigue bloqueada, aunque figure
+                liberada en la lista de sancionadas.
+              </p>
+
+              {ufwRules.length === 0 ? (
+                <div className="flex items-center gap-2 px-3 py-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs text-emerald-300">
+                    No hay reglas de bloqueo por IP. El firewall no tiene ninguna IP denegada.
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                  {ufwRules.map((rule) => (
+                    <div
+                      key={rule.id}
+                      className="flex items-center gap-3 px-3 py-2 rounded-lg bg-rose-500/5 border border-rose-500/20 font-mono text-[11px]"
+                    >
+                      <span className="text-slate-500">[{rule.id}]</span>
+                      <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold">
+                        {rule.action}
+                      </span>
+                      <span className="text-cyan-300">port {rule.toPort}</span>
+                      <span className="text-white">{rule.fromIp}</span>
+                      {rule.comment && (
+                        <span className="text-slate-500 truncate"># {rule.comment}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {(securityEngine.getUfwOperations().length > 0) && (
+                <div className="mt-4 space-y-1">
+                  <p className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">
+                        Últimas operaciones del firewall
+                  </p>
+                  {securityEngine.getUfwOperations().slice(0, 4).map((op: any, idx: number) => (
+                    <div
+                      key={`${op.timestamp}-${idx}`}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-mono border ${
+                        op.ok
+                          ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300'
+                          : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
+                      }`}
+                    >
+                      <span className="font-bold">{op.action}</span>
+                      <span className="text-white">{op.ip}</span>
+                      <span>
+                        {op.ok
+                          ? op.removed
+                            ? `→ ${op.removed} regla(s) eliminada(s)`
+                            : op.skipped
+                              ? '→ ya estaba libre'
+                              : '→ regla creada'
+                          : `→ ERROR: ${op.error}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      </>
+
       )}
 
       {/* ========================================================================= */}
