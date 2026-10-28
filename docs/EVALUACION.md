@@ -10,11 +10,11 @@
 | Aspecto | Resultado |
 |---|---|
 | Tipo de proyecto | frontend |
-| Índice de calidad de servicios | **13/100** (mínimo 60) |
+| Índice de calidad de servicios | **11/100** (mínimo 60) |
 | Criterios cumplidos | **8/15** |
 | Aprobado (semáforo) | **NO** |
-| Código (LOC) | 6,828 |
-| Archivos de código | 18 |
+| Código (LOC) | 7,484 |
+| Archivos de código | 19 |
 | Tests (archivos) | 1 |
 | Cobertura de líneas | no medible (mínimo 80%) |
 | Capas detectadas | vistas, servicios |
@@ -51,7 +51,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Un resumen numérico (0-100) que combina todas las señales y métricas del análisis, con topes duros por duplicación.
 - **Por qué importa:** Ordena y prioriza la revisión: un índice bajo indica varias señales que conviene mirar juntas.
-- **Tu resultado:** índice **13/100** _(mínimo 60)_
+- **Tu resultado:** índice **11/100** _(mínimo 60)_
 - **Para investigar la causa:**
     - ¿En qué momento del proyecto se concentraron los problemas (arranque, integración de partes, cierre)?
     - ¿El índice bajó por muchas señales chicas o por una o dos graves?
@@ -61,13 +61,13 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Porcentaje de bloques de código repetidos (similitud) en el repositorio.
 - **Por qué importa:** Cada copia se mantiene por separado: un arreglo hay que repetirlo y los defectos se multiplican.
-- **Tu resultado:** **6.6%** de duplicación _(máximo 15%)_
+- **Tu resultado:** **4.5%** de duplicación _(máximo 15%)_
 
 ### 3. Secretos hardcodeados (SEC) — A REVISAR
 
 - **Qué mide:** Credenciales, tokens o claves escritos directamente en el código en vez de leerse de variables de entorno.
 - **Por qué importa:** Un secreto en el repositorio queda expuesto en el historial aunque luego se borre, y compromete al servicio y a sus usuarios.
-- **Tu resultado:** **3** secreto(s) hardcodeado(s) _(máximo 0)_
+- **Tu resultado:** **2** secreto(s) hardcodeado(s) _(máximo 0)_
 - **Para investigar la causa:**
     - ¿De dónde salió ese valor: un ejemplo, una prueba rápida, una copia de un compañero?
     - ¿En qué momento entró al código y por qué no se sacó antes de cerrar la tarea?
@@ -95,7 +95,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Mensajes de depuración olvidados (`console.log`, `print`, `debugger`).
 - **Por qué importa:** Generan ruido en los registros, pueden filtrar datos y dan sensación de código sin terminar.
-- **Tu resultado:** **30** mensaje(s) de depuración olvidado(s) _(máximo 0)_
+- **Tu resultado:** **34** mensaje(s) de depuración olvidado(s) _(máximo 0)_
 - **Para investigar la causa:**
     - ¿Fue depuración que quedó al cerrar una tarea, o se usó como registro permanente?
     - ¿Hubo una revisión final antes de cerrar la issue o la entrega?
@@ -105,7 +105,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Uso de `any` en TypeScript, que desactiva la verificación de tipos.
 - **Por qué importa:** Se pierde la ayuda del compilador justo donde los datos vienen de afuera (API, formularios).
-- **Tu resultado:** **3** uso(s) de `any` _(máximo 2)_
+- **Tu resultado:** **4** uso(s) de `any` _(máximo 2)_
 - **Para investigar la causa:**
     - ¿Se usó `any` para destrabar un error de tipos sin tiempo de resolverlo?
     - ¿Está claro el modelo de datos (qué forma tienen la respuesta de la API y el estado de la app)?
@@ -135,19 +135,19 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Complejidad ciclomática: cantidad de caminos posibles dentro de una función (condicionales, bucles, casos).
 - **Por qué importa:** Muchos caminos = difícil de seguir y de probar; suelen esconderse casos sin cubrir.
-- **Tu resultado:** **3** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 6828 LOC))_
+- **Tu resultado:** **6** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 7484 LOC))_
 
 ### 12. Funciones/métodos largos o con muchos parámetros (Tam) — OK
 
 - **Qué mide:** Tamaño de las funciones/métodos y cantidad de parámetros.
 - **Por qué importa:** Una función que hace varias cosas cuesta leerla, nombrarla y reutilizarla.
-- **Tu resultado:** **5** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
+- **Tu resultado:** **11** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
 
 ### 13. Acoplamiento alto (Acop) — OK
 
 - **Qué mide:** Cuánto depende una unidad de las partes internas de otra.
 - **Por qué importa:** Piezas muy enlazadas hacen que un cambio se propague y que sea difícil reemplazar partes.
-- **Tu resultado:** **5** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
+- **Tu resultado:** **6** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
 
 ### 14. Cobertura de tests (Cob) — A REVISAR
 
@@ -171,10 +171,10 @@ Criterios que hoy están en rojo y qué habría que cambiar para alcanzar el niv
 
 | Criterio | Resultado actual | Meta | Qué arreglar |
 |---|---|---|---|
-| Índice de calidad de servicios (indice) | índice **13/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
-| Secretos hardcodeados (SEC) | **3** secreto(s) hardcodeado(s) | máximo 0 | Leer credenciales de variables de entorno o del gestor de secretos y sacarlas del código; 0 casos. |
-| Depuración olvidada (DBG) | **30** mensaje(s) de depuración olvidado(s) | máximo 0 | Quitar `console.log`/`print`/`debugger` del código de producción; 0 casos. |
-| Uso del tipo `any` (Any) | **3** uso(s) de `any` | máximo 2 | Tipar los datos que vienen de la API y de los formularios; bajar `any` a ≤2. |
+| Índice de calidad de servicios (indice) | índice **11/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
+| Secretos hardcodeados (SEC) | **2** secreto(s) hardcodeado(s) | máximo 0 | Leer credenciales de variables de entorno o del gestor de secretos y sacarlas del código; 0 casos. |
+| Depuración olvidada (DBG) | **34** mensaje(s) de depuración olvidado(s) | máximo 0 | Quitar `console.log`/`print`/`debugger` del código de producción; 0 casos. |
+| Uso del tipo `any` (Any) | **4** uso(s) de `any` | máximo 2 | Tipar los datos que vienen de la API y de los formularios; bajar `any` a ≤2. |
 | Componente demasiado grande (BigC) | **9** componente(s) demasiado grande(s) | máximo 1 | Dividir el componente por responsabilidad en subcomponentes; ≤1 componente grande. |
 | Baja cohesión (Coh) | **1** unidad(es) con baja cohesión | máximo 0 | Separar en unidades con una sola responsabilidad; 0 clases con baja cohesión. |
 | Cobertura de tests (Cob) | **no medible** (sin tests, sin runner o sin artefacto de cobertura) | mínimo 80% de líneas | Publicar cobertura (o correr la suite con coverage) y cubrir ≥80% de líneas. |
@@ -185,18 +185,18 @@ Criterios que hoy están en rojo y qué habría que cambiar para alcanzar el niv
 
 Archivos donde el análisis encontró cada señal en rojo (sin número de línea, a propósito):
 
-**Secretos hardcodeados (SEC)** — 2 archivo(s):
+**Secretos hardcodeados (SEC)** — 1 archivo(s):
 - `src/components/SwaggerDocs.tsx`
-- `src/services/securityEngine.ts`
 
 **Depuración olvidada (DBG)** — 3 archivo(s):
 - `servicios-abrego/backend-a-fastapi/main.py`
 - `servicios-mulet/backend-b-engine/server.js`
 - `src/data/architectureFiles.ts`
 
-**Uso del tipo `any` (Any)** — 3 archivo(s):
+**Uso del tipo `any` (Any)** — 4 archivo(s):
 - `src/components/SwaggerDocs.tsx`
 - `src/data/openApiSpec.ts`
+- `src/services/api.ts`
 - `src/services/securityEngine.ts`
 
 **Componente demasiado grande (BigC)** — 9 archivo(s):
