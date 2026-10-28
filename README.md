@@ -4,6 +4,7 @@
 **Calidad de servicios (heurístico):** índice **7/100** · cumple **7/15** · aprobado **NO** · capas **2**
 Detalle completo en [`docs/EVALUACION.md`](docs/EVALUACION.md).
 <!-- calidad:fin -->
+
 CRITERIOS DE CALIDAD - PROGRAMACION III (perfil exigente, rama main)
 
 El analisis es heuristico (regex + metricas): no compila ni ejecuta el codigo.
