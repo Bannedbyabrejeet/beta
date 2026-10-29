@@ -3,7 +3,7 @@
 
 > Documento **generado automáticamente** por la cátedra de Programación III (RepoSense + análisis de calidad + constancia). **No editar a mano**: se regenera en cada evaluación.
 > Rama evaluada: `main`. Análisis **heurístico** (regex + métricas): es una criba para orientar la revisión, **no una nota**.
-> Generado: 2026-10-28.
+> Generado: 2026-10-29.
 
 ## 1. Veredicto
 
@@ -25,8 +25,8 @@
 
 | Autor | Commits | Código (LOC) | Tests (LOC) | Docs (LOC) | Días activos | % del código |
 |---|---:|---:|---:|---:|---:|---:|
-| manuabrego | 1 | 7,616 | 0 | 181 | 1 | 100% |
-| manu_abrego_1913 | 2 | 0 | 0 | 183 | 3 | 0% |
+| manuabrego | 2 | 8,328 | 0 | 1,472 | 2 | 100% |
+| manu_abrego_1913 | 2 | 0 | 0 | 183 | 4 | 0% |
 
 > _El LOC de autoría lo calcula RepoSense sobre el historial y puede diferir del LOC de código del análisis de calidad (que mira solo el estado de `main`)._
 
@@ -38,7 +38,7 @@
 
 | Alumno | Sesiones | Cumplimiento | Pausa | Recencia | IC | Nivel | Para subir de nivel |
 |---|--:|--:|--:|--:|--:|--|--|
-| manu_abrego_1913 | 3 | 14% | 61 d | 50% | **16** | No aprueba | Cumplimiento 14% (mín. 50%); Pausa 61 d (máx. 10 d) |
+| manu_abrego_1913 | 4 | 18% | 61 d | 93% | **25** | No aprueba | Cumplimiento 18% (mín. 50%); Pausa 61 d (máx. 10 d) |
 | manu_abrego_1913 | — | — | — | — | — | — | sin datos de IC |
 
 > Para aprobar el IC: **2 sesiones por semana** sostenidas, sin pausas mayores a **10 días** y con actividad en las **últimas 2 semanas**. Se excluyen merges, bots y al docente. Zona horaria UTC-3.
