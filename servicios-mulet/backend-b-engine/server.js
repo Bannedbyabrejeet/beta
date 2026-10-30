@@ -142,9 +142,23 @@ class UfwFirewallManager {
       console.log(`   ↳ regla eliminada por especificación`);
     }
 
-    // Estrategia 2: delete por posicion, de mayor a menor (ufw real)
-    const ordered = [...rules].sort((a, b) => b.id - a.id);
+    // ⚠️ CRÍTICO: al borrar una regla, las DEMÁS se renumeran.
+    // Por eso hay que VOLVER A LEER la lista antes de borrar por posición,
+    // y sólo borrar reglas que sigan perteneciendo a esta IP.
+    // (Un bug anterior usaba las posiciones viejas y borraba la regla ALLOW 22/tcp.)
+    const pendientes = await UfwFirewallManager.findRulesForIp(ip);
+
+    // De mayor a menor: al borrar, las posiciones inferiores no se mueven
+    const ordered = [...pendientes].sort((a, b) => b.id - a.id);
     for (const rule of ordered) {
+      // Guarda extra: nunca borrar una regla ALLOW (podría ser el acceso SSH legítimo)
+      if (rule.action !== 'DENY' && rule.action !== 'REJECT') {
+        console.warn(
+          `⚠️ [UFW SAFETY] Se omite la regla [${rule.id}] (${rule.action} ${rule.fromIp}): ` +
+          `sólo se borran reglas DENY/REJECT de la IP sancionada.`
+        );
+        continue;
+      }
       const res = await runCommand(`ufw --force delete ${rule.id}`);
       if (res.code === 0) {
         removed++;
@@ -152,7 +166,7 @@ class UfwFirewallManager {
       } else {
         const detalle = `${res.stderr || res.stdout}`.trim();
         // "non-existent" es normal (ya se borró por especificación)
-        if (!/non-existent/i.test(detalle)) {
+        if (!/non-existent|could not find rule/i.test(detalle)) {
           console.error(`❌ [UFW ERROR] No se pudo eliminar la regla [${rule.id}] de ${ip}:`, detalle);
         }
       }
@@ -164,13 +178,20 @@ class UfwFirewallManager {
       if (res.code === 0) removed++;
     }
 
+    // fail2ban: puede estar baneando la MISMA IP por su cuenta (nftables/iptables).
+    // Si no se libera también ahí, la conexión sigue rechazada aunque ufw esté limpio.
+    const f2b = await UfwFirewallManager.unbanFail2ban(ip);
+
     // Verificación final
     const after = await UfwFirewallManager.findRulesForIp(ip);
     const remaining = after.length;
 
     if (remaining === 0) {
-      console.log(`✅ [UFW ÉXITO] Regla de bloqueo para IP ${ip} eliminada de UFW (${removed} borrada(s)).`);
-      return { ok: true, alreadyFree: false, removed, remaining: 0 };
+      console.log(
+        `✅ [UFW ÉXITO] Regla de bloqueo para IP ${ip} eliminada de UFW (${removed} borrada(s))` +
+        `${f2b.released ? ' + liberada en fail2ban ✅' : ''}.`
+      );
+      return { ok: true, alreadyFree: false, removed, remaining: 0, fail2ban: f2b };
     }
 
     console.error(`❌ [UFW VERIFY] La IP ${ip} SIGUE bloqueada: quedan ${remaining} regla(s).`);
@@ -235,6 +256,78 @@ class UfwFirewallManager {
       console.error('[UFW LIST ERROR]', err.message);
       return [];
     }
+  }
+
+  /**
+   * fail2ban puede estar bloqueando la MISMA IP en paralelo (nftables o iptables),
+   * por fuera de ufw. Si no se libera ahí también, la conexión sigue rechazada
+   * aunque 'ufw status' se vea limpio.
+   * Best-effort: si fail2ban no está instalado, no hace nada.
+   */
+  static async unbanFail2ban(ip) {
+    const result = { installed: false, released: false, jails: [], error: null };
+
+    const which = await runCommand('command -v fail2ban-client');
+    if (which.code !== 0) return result;
+    result.installed = true;
+
+    let jails = ['sshd'];
+    const status = await runCommand('fail2ban-client status');
+    if (status.code === 0) {
+      const m = status.stdout.match(/Jail list:\s*(.+)/i);
+      if (m) jails = m[1].split(/,\s*/).map((s) => s.trim()).filter(Boolean);
+    }
+
+    for (const jail of jails) {
+      const res = await runCommand(`fail2ban-client set ${jail} unbanip ${ip}`);
+      const out = `${res.stdout} ${res.stderr}`.trim();
+      if (res.code === 0) {
+        result.jails.push(jail);
+        // fail2ban devuelve "1" si desbaneó, "0" si la IP no estaba en ese jail
+        if (out === '1') {
+          result.released = true;
+          console.log(`   ↳ fail2ban: IP ${ip} liberada del jail '${jail}' ✅`);
+        }
+      } else if (!/not found|invalid|no such|Failed to access socket/i.test(out)) {
+        console.error(`❌ [FAIL2BAN ERROR] jail '${jail}':`, out);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Estado de fail2ban (para diagnóstico desde el Dashboard).
+   */
+  static async fail2banStatus() {
+    const which = await runCommand('command -v fail2ban-client');
+    if (which.code !== 0) {
+      return { installed: false, active: false, jails: {}, banned: [] };
+    }
+
+    const out = { installed: true, active: false, jails: {}, banned: [] };
+    const status = await runCommand('fail2ban-client status');
+    if (status.code !== 0) {
+      out.error = `${status.stderr || status.stdout}`.trim();
+      return out;
+    }
+    out.active = true;
+
+    const m = status.stdout.match(/Jail list:\s*(.+)/i);
+    const jails = m ? m[1].split(/,\s*/).map((s) => s.trim()).filter(Boolean) : [];
+
+    for (const jail of jails) {
+      const j = await runCommand(`fail2ban-client status ${jail}`);
+      if (j.code !== 0) continue;
+      const bannedMatch = j.stdout.match(/Banned IP list:\s*(.*)/i);
+      const banned = bannedMatch
+        ? bannedMatch[1].split(/\s+/).map((s) => s.trim()).filter(Boolean)
+        : [];
+      out.jails[jail] = banned;
+      out.banned.push(...banned);
+    }
+    out.banned = [...new Set(out.banned)];
+    return out;
   }
 }
 
@@ -648,6 +741,24 @@ app.get('/api/security/ufw-rules', async (req, res) => {
   res.json({ active, rules, raw, total: rules.length });
 });
 
+// Estado de fail2ban: puede estar bloqueando IPs en paralelo a ufw
+app.get('/api/security/fail2ban', async (req, res) => {
+  try {
+    const status = await UfwFirewallManager.fail2banStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(503).json({ error: err.message, installed: false, active: false, banned: [] });
+  }
+});
+
+// Liberar una IP en fail2ban (sin tocar ufw)
+app.post('/api/security/fail2ban/unban', async (req, res) => {
+  const ip = (req.body && req.body.ip) || '';
+  if (!ip) return res.status(400).json({ error: 'Falta campo ip' });
+  const result = await UfwFirewallManager.unbanFail2ban(ip);
+  res.json({ message: `fail2ban: ${result.released ? 'IP liberada' : 'la IP no estaba baneada o fail2ban no está instalado'}`, result });
+});
+
 app.get('/api/security/stats', async (req, res) => {
   try {
     const [bannedRaw, logCount, pubCount] = await Promise.all([
@@ -681,6 +792,37 @@ async function bootstrap() {
 
   await initPubSub();
   startLogWatcher();
+
+  // Chequeo de seguridad: si UFW está activo y no hay una regla ALLOW para el
+  // puerto 22, el acceso SSH quedaría bloqueado por la política por defecto.
+  try {
+    const { active, rules } = await UfwFirewallManager.listRules();
+    const sshAllowed = rules.some(
+      (r) => r.action === 'ALLOW' && (r.toPort === 22 || r.toPort === 0)
+    );
+    if (active && !sshAllowed) {
+      console.warn('');
+      console.warn('⚠️  [UFW SAFETY] UFW está ACTIVO y no hay regla ALLOW para el puerto 22.');
+      console.warn('    Con la política por defecto (deny incoming) el acceso SSH queda bloqueado.');
+      console.warn('    Ejecutá:  sudo ufw allow 22/tcp');
+      console.warn('');
+    }
+
+    // Aviso: fail2ban puede estar baneando en paralelo (nftables/iptables).
+    const f2b = await UfwFirewallManager.fail2banStatus();
+    if (f2b.installed && f2b.active) {
+      console.log('');
+      console.log('ℹ️  [FAIL2BAN] Detectado y activo. También puede banear IPs por su cuenta');
+      console.log('    (bantime por defecto: 10 min). El desbaneo del Dashboard ahora');
+      console.log('    libera la IP en ufw Y en fail2ban.');
+      if (f2b.banned.length > 0) {
+        console.log(`    IPs actualmente bloqueadas por fail2ban: ${f2b.banned.join(', ')}`);
+      }
+      console.log('');
+    }
+  } catch (err) {
+    console.error('[SAFETY CHECK]', err.message);
+  }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n==========================================================`);

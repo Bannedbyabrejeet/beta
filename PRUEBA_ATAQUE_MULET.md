@@ -406,6 +406,65 @@ El Dashboard ahora muestra la **verdad**:
 - **"Últimas operaciones del firewall"** → muestra `ok: true/false`, `removed` y `remaining`
 - El botón "Desbanear" dice explícitamente si la regla se eliminó o si **sigue bloqueada**
 
+### 🛑 CAUSA MÁS FRECUENTE: fail2ban banea en paralelo
+
+Si `sudo ufw status numbered` se ve **limpio** (sin reglas DENY) pero la máquina atacante
+**sigue** recibiendo `Connection refused`, el bloqueo no viene de ufw: viene de **fail2ban**,
+que corre en tu Ubuntu y banea la misma IP por su cuenta en **nftables**, con un
+`bantime` por defecto de **10 minutos**.
+
+Verificación:
+
+```bash
+sudo fail2ban-client status sshd
+#   Banned IP list:   192.168.220.127     <-- acá está la IP
+
+sudo nft list ruleset | grep -A2 f2b
+#   elements = { 192.168.220.127 }
+```
+
+Solución inmediata:
+
+```bash
+sudo fail2ban-client set sshd unbanip 192.168.220.127
+```
+
+El sistema ya lo integra:
+- El **desbaneo del Dashboard** libera la IP en ufw **y** en fail2ban.
+- El Dashboard muestra un panel **"fail2ban detectado"** con las IPs que ese servicio tiene bloqueadas.
+- Endpoints: `GET /api/security/fail2ban` y `POST /api/security/fail2ban/unban`.
+
+> Para una demo donde **solo** actúe vuestro sistema:
+> `sudo systemctl stop fail2ban` (y `sudo systemctl start fail2ban` al terminar).
+
+### 🐛 Bug corregido: el unban borraba la regla ALLOW 22/tcp
+
+Si tenías esta lista de reglas:
+
+```
+[ 1] 22       DENY IN   192.168.220.127
+[ 2] 22/tcp   ALLOW IN  Anywhere
+```
+
+el unban hacía:
+1. `ufw delete deny from 192.168.220.127 ...` → borraba la regla 1, y **la ALLOW pasaba a ser la 1**
+2. `ufw --force delete 1` (usando la posición **vieja**) → **borraba la ALLOW 22/tcp**
+
+Resultado: UFW activo, sin reglas, política `deny incoming` → **SSH bloqueado para todos**
+(el atacante y cualquiera). Ese era el "Connection refused" que persistía después del unban.
+
+**Ya está corregido**: el unban vuelve a leer la lista *después* del primer delete y sólo
+borra reglas `DENY`/`REJECT` que pertenezcan a la IP sancionada. Además, si UFW está activo
+y no existe regla `ALLOW` para el puerto 22, el Backend B lo avisa al arrancar.
+
+**Si te pasó, restaurá tu acceso así:**
+
+```bash
+sudo ufw allow 22/tcp
+sudo ufw status numbered
+# Debe aparecer: [ 1] 22/tcp  ALLOW IN  Anywhere
+```
+
 ### Causas típicas del fallo
 
 | Causa | Síntoma | Solución |

@@ -58,6 +58,12 @@ class SecurityEngineService {
   private ufwRules: UfwRuleEntry[] = [];
   private pubSubMessages: PubSubMessage[] = [];
   private ufwOperations: any[] = [];
+  private fail2ban: { installed: boolean; active: boolean; banned: string[] } = {
+    installed: false,
+    active: false,
+    banned: []
+  };
+  private lastFail2banFetch = 0;
   private transactionalEmails: TransactionalEmail[] = [];
   private adminUser: AdminUser = {
     username: 'admin',
@@ -157,6 +163,24 @@ class SecurityEngineService {
 
       this.pubSubMessages = (securityState.pubsub || []).map(mapPubSubMessage);
       this.ufwOperations = securityState.ufw_ops || [];
+
+      // fail2ban puede banear en paralelo: se consulta cada 10 s (spawnea un proceso)
+      if (Date.now() - this.lastFail2banFetch > 10000) {
+        this.lastFail2banFetch = Date.now();
+        backendB
+          .getFail2ban()
+          .then(status => {
+            this.fail2ban = {
+              installed: !!status.installed,
+              active: !!status.active,
+              banned: status.banned || []
+            };
+            this.notify();
+          })
+          .catch(() => {
+            this.fail2ban = { installed: false, active: false, banned: [] };
+          });
+      }
 
       this.ufwRules = (ufw.rules || []).map((rule: any, index: number) => ({
         id: Number(rule.id ?? index + 1),
@@ -391,14 +415,40 @@ class SecurityEngineService {
         };
       }
 
+      // fail2ban: puede tener la IP baneada en paralelo (nftables/iptables).
+      // Aunque ufw esté limpio, la conexión sigue rechazada hasta liberarla ahí.
+      let f2bLiberado = false;
+      if (this.fail2ban.installed && this.fail2ban.banned.includes(ip)) {
+        try {
+          await backendB.unbanFail2ban(ip);
+          f2bLiberado = true;
+          await new Promise(resolve => setTimeout(resolve, 600));
+          await this.refresh();
+        } catch (e) {
+          // se reporta abajo
+        }
+      }
+
+      const f2bSigue = this.fail2ban.banned.includes(ip);
+
+      if (f2bSigue) {
+        return {
+          success: false,
+          message:
+            `La regla de UFW se eliminó, pero la IP ${ip} SIGUE bloqueada por fail2ban ` +
+            `(bantime por defecto 10 min). Ejecutá: sudo fail2ban-client set sshd unbanip ${ip}`
+        };
+      }
+
       return {
         success: true,
         message:
-          response.subscribers_notified > 0
+          (response.subscribers_notified > 0
             ? `Orden de unbaneo transmitida a través de Redis Pub/Sub para IP ${ip}. ` +
               `Servicio 2 notificado y la regla UFW fue eliminada y verificada.`
             : `Orden de unbaneo publicada en 'channel:unban_events' para IP ${ip}. ` +
-              `Ningún servicio estaba suscrito en ese momento; no había regla UFW activa.`
+              `Ningún servicio estaba suscrito en ese momento; no había regla UFW activa.`) +
+          (f2bLiberado ? ' También se liberó la IP en fail2ban.' : '')
       };
     } catch (err) {
       const message = err instanceof ApiError ? err.message : `No se pudo desbanear la IP ${ip}`;
@@ -413,6 +463,13 @@ class SecurityEngineService {
    */
   public getUfwOperations(): any[] {
     return [...this.ufwOperations];
+  }
+
+  /**
+   * Estado de fail2ban (otro IDS que puede banear en paralelo a ufw).
+   */
+  public getFail2banStatus(): { installed: boolean; active: boolean; banned: string[] } {
+    return { ...this.fail2ban, banned: [...this.fail2ban.banned] };
   }
 
   // =========================================================================

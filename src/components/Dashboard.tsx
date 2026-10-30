@@ -712,6 +712,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               )}
 
+              {/* fail2ban: otro IDS que puede banear la misma IP en paralelo */}
+              {securityEngine.getFail2banStatus().installed && (
+                <div className="mt-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShieldAlert className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-bold text-amber-300">
+                      fail2ban detectado
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      (banea en paralelo, fuera de ufw)
+                    </span>
+                  </div>
+                  {!securityEngine.getFail2banStatus().active ? (
+                    <p className="text-[11px] text-amber-400 font-mono">
+                      ⚠️ Sin permisos para leer fail2ban. Arrancá el motor con
+                      {' '}<code>./local-dev/run-local.sh start-real</code> (con sudo) para verlo.
+                    </p>
+                  ) : securityEngine.getFail2banStatus().banned.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 font-mono">
+                      Sin IPs bloqueadas por fail2ban.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {securityEngine.getFail2banStatus().banned.map((fip) => (
+                        <span
+                          key={fip}
+                          className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-mono"
+                        >
+                          {fip} bloqueada por fail2ban
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    El botón "Desbanear" también libera la IP en fail2ban.
+                  </p>
+                </div>
+              )}
+
               {(securityEngine.getUfwOperations().length > 0) && (
                 <div className="mt-4 space-y-1">
                   <p className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">

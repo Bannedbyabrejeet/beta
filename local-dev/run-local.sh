@@ -58,6 +58,12 @@ kill_group() {
     kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
     sleep 1
     kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
+    sleep 1
+    # Un proceso de 'start-real' corre como root: sin sudo no se puede matar.
+    if kill -0 "$pid" 2>/dev/null; then
+        c_warn "  ⚠️ El proceso $pid sigue vivo (corre como root por 'start-real')."
+        c_warn "     Ejecutá en tu terminal:  sudo kill -9 $pid"
+    fi
 }
 
 wait_for() {  # wait_for <descripcion> <url> <segundos>
