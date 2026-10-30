@@ -1,3 +1,10 @@
+/**
+ * Valores de ejemplo para los campos sensibles del OpenAPI.
+ * Se usan variables para no dejar credenciales escritas en el repositorio.
+ */
+const EXAMPLE_CREDENTIAL = '';
+const EXAMPLE_TOKEN = '';
+
 export interface ApiEndpoint {
   id: string;
   path: string;
@@ -16,12 +23,12 @@ export interface ApiEndpoint {
   }>;
   requestBody?: {
     contentType: string;
-    example: any;
-    schema: any;
+    example: unknown;
+    schema: unknown;
   };
   responses: Record<string, {
     description: string;
-    example: any;
+    example: unknown;
   }>;
 }
 
@@ -269,7 +276,7 @@ export const OPENAPI_ENDPOINTS: ApiEndpoint[] = [
     service: 'FastAPI (Framework A)',
     requestBody: {
       contentType: 'application/json',
-      example: { username: 'admin', password: 'admin123' },
+      example: { username: 'admin', password: EXAMPLE_CREDENTIAL },
       schema: {
         type: 'object',
         required: ['username', 'password'],
@@ -283,7 +290,7 @@ export const OPENAPI_ENDPOINTS: ApiEndpoint[] = [
       '200': {
         description: 'Autenticación exitosa',
         example: {
-          access_token: 'jwt_session_token_santiago_abrego_2026',
+          access_token: EXAMPLE_TOKEN,
           token_type: 'bearer',
           expires_in: 86400
         }
@@ -304,7 +311,7 @@ export const OPENAPI_ENDPOINTS: ApiEndpoint[] = [
     service: 'FastAPI (Framework A)',
     requestBody: {
       contentType: 'application/json',
-      example: { username: 'admin', email: 'admin@bannedbyabrejeet.io', password: 'admin123' },
+      example: { username: 'admin', email: 'admin@bannedbyabrejeet.io', password: EXAMPLE_CREDENTIAL },
       schema: {
         type: 'object',
         required: ['username', 'email', 'password'],
@@ -349,9 +356,9 @@ export const OPENAPI_ENDPOINTS: ApiEndpoint[] = [
         example: {
           status: 'success',
           message: 'Correo de recuperación enviado con éxito. Token volátil persistido en Redis con EXPIRE 900.',
-          reset_token: 'rst_9x8f2_1724682000',
+          reset_token: EXAMPLE_TOKEN,
           expires_in_seconds: 900,
-          redis_key: 'auth:reset_token:rst_9x8f2_1724682000'
+          redis_key: `auth:reset_token:${EXAMPLE_TOKEN}`
         }
       },
       '404': {
@@ -370,7 +377,7 @@ export const OPENAPI_ENDPOINTS: ApiEndpoint[] = [
     service: 'FastAPI (Framework A)',
     requestBody: {
       contentType: 'application/json',
-      example: { token: 'rst_9x8f2_1724682000', new_password: 'new_secure_admin_password_2026' },
+      example: { token: EXAMPLE_TOKEN, new_password: EXAMPLE_CREDENTIAL },
       schema: {
         type: 'object',
         required: ['token', 'new_password'],

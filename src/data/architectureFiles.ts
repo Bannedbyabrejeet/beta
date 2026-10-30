@@ -464,25 +464,25 @@ const SSH_INVALID_REGEX = /sshd(?:-session)?\\[\\d+\\]: Invalid user (\\S+) from
 class UfwFirewallManager {
   static banIp(ip, reason = 'bannedbyabrejeet') {
     const cmd = \`ufw insert 1 deny from \${ip} to any port 22 comment 'bannedbyabrejeet:\${reason}'\`;
-    console.log(\`[UFW EXEC] \${cmd}\`);
+    log.info(\`[UFW EXEC] \${cmd}\`);
     exec(cmd, (err, stdout, stderr) => {
       if (err) {
-        console.error(\`[UFW ERROR] Failed to ban \${ip}:\`, stderr);
+        log.error(\`[UFW ERROR] Failed to ban \${ip}:\`, stderr);
         return;
       }
-      console.log(\`[UFW SUCCESS] IP \${ip} blocked successfully on port 22.\`);
+      log.info(\`[UFW SUCCESS] IP \${ip} blocked successfully on port 22.\`);
     });
   }
 
   static unbanIp(ip) {
     const cmd = \`ufw delete deny from \${ip} to any port 22\`;
-    console.log(\`[UFW EXEC] \${cmd}\`);
+    log.info(\`[UFW EXEC] \${cmd}\`);
     exec(cmd, (err, stdout, stderr) => {
       if (err) {
-        console.error(\`[UFW ERROR] Failed to unban \${ip}:\`, stderr);
+        log.error(\`[UFW ERROR] Failed to unban \${ip}:\`, stderr);
         return;
       }
-      console.log(\`[UFW SUCCESS] IP \${ip} unbanned from UFW.\`);
+      log.info(\`[UFW SUCCESS] IP \${ip} unbanned from UFW.\`);
     });
   }
 }
@@ -494,7 +494,7 @@ async function handleSshFailure(ip, user) {
   // 1. Verificar Whitelist
   const isWhitelisted = await redisClient.sIsMember('config:whitelist', ip);
   if (isWhitelisted) {
-    console.log(\`[SECURITY ENGINE] IP \${ip} is whitelisted. Ignoring failure.\`);
+    log.info(\`[SECURITY ENGINE] IP \${ip} is whitelisted. Ignoring failure.\`);
     return;
   }
 
@@ -519,10 +519,10 @@ async function handleSshFailure(ip, user) {
   const attempts = await redisClient.lRange(key, 0, -1);
   const validAttempts = attempts.filter(t => (now - parseInt(t, 10)) <= findTimeMin * 60 * 1000);
 
-  console.log(\`[SECURITY ENGINE] IP \${ip} attempts: \${validAttempts.length}/\${maxRetries} (user: \${user})\`);
+  log.info(\`[SECURITY ENGINE] IP \${ip} attempts: \${validAttempts.length}/\${maxRetries} (user: \${user})\`);
 
   if (validAttempts.length >= maxRetries) {
-    console.warn(\`🚨 [THREAT DETECTED] IP \${ip} exceeded \${maxRetries} retries in \${findTimeMin}m. Executing BAN!\`);
+    log.warn(\`🚨 [THREAT DETECTED] IP \${ip} exceeded \${maxRetries} retries in \${findTimeMin}m. Executing BAN!\`);
     
     // Registrar en ip:banned
     const banRecord = {
@@ -552,15 +552,15 @@ async function initPubSub() {
   await subClient.subscribe(UNBAN_CHANNEL, (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(\`[REDIS PUBSUB] Received unban event:\`, data);
+      log.info(\`[REDIS PUBSUB] Received unban event:\`, data);
       if (data.action === 'UNBAN' && data.ip) {
         UfwFirewallManager.unbanIp(data.ip);
       }
     } catch (e) {
-      console.error('[REDIS PUBSUB ERROR]', e);
+      log.error('[REDIS PUBSUB ERROR]', e);
     }
   });
-  console.log(\`[REDIS PUBSUB] Listening for unban orders on '\${UNBAN_CHANNEL}'\`);
+  log.info(\`[REDIS PUBSUB] Listening for unban orders on '\${UNBAN_CHANNEL}'\`);
 }
 
 // =========================================================================
@@ -571,7 +571,7 @@ async function bootstrap() {
   await initPubSub();
 
   app.listen(PORT, () => {
-    console.log(\`⚡ Bannedbyabrejeet Security Engine running on port \${PORT}\`);
+    log.info(\`⚡ Bannedbyabrejeet Security Engine running on port \${PORT}\`);
   });
 }
 

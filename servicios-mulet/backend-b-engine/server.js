@@ -14,6 +14,7 @@ const redis = require('redis');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { log } = require('./logger');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -34,8 +35,8 @@ app.use(express.json());
 const redisClient = redis.createClient({ url: REDIS_URL });
 const subClient = redisClient.duplicate();
 
-redisClient.on('error', (err) => console.error('[REDIS CLIENT ERROR]', err.message));
-subClient.on('error', (err) => console.error('[REDIS SUB ERROR]', err.message));
+redisClient.on('error', (err) => log.error('[REDIS CLIENT ERROR]', err.message));
+subClient.on('error', (err) => log.error('[REDIS SUB ERROR]', err.message));
 
 // Regex optimizada para SSH Auth logs (OpenSSH Syslog)
 // IMPORTANTE: en Ubuntu 24.04+ el proceso de sesión se llama "sshd-session[PID]",
@@ -83,7 +84,7 @@ class UfwFirewallManager {
   static async banIp(ip, reason = 'bannedbyabrejeet') {
     const existing = await UfwFirewallManager.findRulesForIp(ip);
     if (existing.length > 0) {
-      console.log(`⚠️ [UFW] La IP ${ip} ya tiene ${existing.length} regla(s) activa(s). No se duplica.`);
+      log.info(`⚠️ [UFW] La IP ${ip} ya tiene ${existing.length} regla(s) activa(s). No se duplica.`);
       return { ok: true, skipped: true, rules: existing.length, removed: 0 };
     }
 
@@ -93,7 +94,7 @@ class UfwFirewallManager {
 
     // Si no hay reglas previas, la posición 1 no existe -> ufw appendea al final
     if (res.code !== 0 && /invalid position/i.test(`${res.stderr} ${res.stdout}`)) {
-      console.log(`⚠️ [UFW] No hay posición 1 libre -> se usa 'ufw deny' (regla al final).`);
+      log.info(`⚠️ [UFW] No hay posición 1 libre -> se usa 'ufw deny' (regla al final).`);
       res = await runCommand(
         `ufw deny from ${ip} to any port 22 comment 'bannedbyabrejeet:${reason}'`
       );
@@ -101,18 +102,18 @@ class UfwFirewallManager {
 
     if (res.code !== 0) {
       const detalle = `${res.stderr || res.stdout}`.trim();
-      console.error(`❌ [UFW ERROR] No se pudo banear ${ip} (¿tienes permisos sudo?):`, detalle);
+      log.error(`❌ [UFW ERROR] No se pudo banear ${ip} (¿tienes permisos sudo?):`, detalle);
       return { ok: false, error: detalle, removed: 0 };
     }
 
     // Verificación: la regla tiene que existir de verdad
     const after = await UfwFirewallManager.findRulesForIp(ip);
     if (after.length === 0) {
-      console.error(`❌ [UFW VERIFY] El comando terminó bien, pero la regla de ${ip} NO aparece en 'ufw status'.`);
+      log.error(`❌ [UFW VERIFY] El comando terminó bien, pero la regla de ${ip} NO aparece en 'ufw status'.`);
       return { ok: false, error: 'La regla no aparece en ufw status después de insertarla', removed: 0 };
     }
 
-    console.log(`✅ [UFW ÉXITO] IP ${ip} BLOQUEADA en el puerto 22. Regla añadida al kernel.`);
+    log.info(`✅ [UFW ÉXITO] IP ${ip} BLOQUEADA en el puerto 22. Regla añadida al kernel.`);
     return { ok: true, skipped: false, rules: after.length, removed: 0 };
   }
 
@@ -127,19 +128,19 @@ class UfwFirewallManager {
     const rules = await UfwFirewallManager.findRulesForIp(ip);
 
     if (rules.length === 0) {
-      console.log(`ℹ️ [UFW] La IP ${ip} no tiene ninguna regla activa: ya estaba libre.`);
+      log.info(`ℹ️ [UFW] La IP ${ip} no tiene ninguna regla activa: ya estaba libre.`);
       // Igual intentamos el delete por especificación (por si el parser se perdió algo)
       await runCommand(`ufw delete deny from ${ip} to any port 22`);
       return { ok: true, alreadyFree: true, removed: 0, remaining: 0 };
     }
 
-    console.log(`🔓 [UFW EXEC UNBAN] ${rules.length} regla(s) encontrada(s) para ${ip}`);
+    log.info(`🔓 [UFW EXEC UNBAN] ${rules.length} regla(s) encontrada(s) para ${ip}`);
 
     // Estrategia 1: delete por especificacion (funciona en el ufw real Y en el shim)
     const specRes = await runCommand(`ufw delete deny from ${ip} to any port 22`);
     let removed = specRes.code === 0 ? 1 : 0;
     if (specRes.code === 0) {
-      console.log(`   ↳ regla eliminada por especificación`);
+      log.info(`   ↳ regla eliminada por especificación`);
     }
 
     // ⚠️ CRÍTICO: al borrar una regla, las DEMÁS se renumeran.
@@ -153,7 +154,7 @@ class UfwFirewallManager {
     for (const rule of ordered) {
       // Guarda extra: nunca borrar una regla ALLOW (podría ser el acceso SSH legítimo)
       if (rule.action !== 'DENY' && rule.action !== 'REJECT') {
-        console.warn(
+        log.warn(
           `⚠️ [UFW SAFETY] Se omite la regla [${rule.id}] (${rule.action} ${rule.fromIp}): ` +
           `sólo se borran reglas DENY/REJECT de la IP sancionada.`
         );
@@ -162,12 +163,12 @@ class UfwFirewallManager {
       const res = await runCommand(`ufw --force delete ${rule.id}`);
       if (res.code === 0) {
         removed++;
-        console.log(`   ↳ regla [${rule.id}] eliminada por posición`);
+        log.info(`   ↳ regla [${rule.id}] eliminada por posición`);
       } else {
         const detalle = `${res.stderr || res.stdout}`.trim();
         // "non-existent" es normal (ya se borró por especificación)
         if (!/non-existent|could not find rule/i.test(detalle)) {
-          console.error(`❌ [UFW ERROR] No se pudo eliminar la regla [${rule.id}] de ${ip}:`, detalle);
+          log.error(`❌ [UFW ERROR] No se pudo eliminar la regla [${rule.id}] de ${ip}:`, detalle);
         }
       }
     }
@@ -187,14 +188,14 @@ class UfwFirewallManager {
     const remaining = after.length;
 
     if (remaining === 0) {
-      console.log(
+      log.info(
         `✅ [UFW ÉXITO] Regla de bloqueo para IP ${ip} eliminada de UFW (${removed} borrada(s))` +
         `${f2b.released ? ' + liberada en fail2ban ✅' : ''}.`
       );
       return { ok: true, alreadyFree: false, removed, remaining: 0, fail2ban: f2b };
     }
 
-    console.error(`❌ [UFW VERIFY] La IP ${ip} SIGUE bloqueada: quedan ${remaining} regla(s).`);
+    log.error(`❌ [UFW VERIFY] La IP ${ip} SIGUE bloqueada: quedan ${remaining} regla(s).`);
     return {
       ok: false,
       removed,
@@ -253,7 +254,7 @@ class UfwFirewallManager {
       const { rules } = await UfwFirewallManager.listRules();
       return rules.filter((r) => r.fromIp === ip);
     } catch (err) {
-      console.error('[UFW LIST ERROR]', err.message);
+      log.error('[UFW LIST ERROR]', err.message);
       return [];
     }
   }
@@ -286,10 +287,10 @@ class UfwFirewallManager {
         // fail2ban devuelve "1" si desbaneó, "0" si la IP no estaba en ese jail
         if (out === '1') {
           result.released = true;
-          console.log(`   ↳ fail2ban: IP ${ip} liberada del jail '${jail}' ✅`);
+          log.info(`   ↳ fail2ban: IP ${ip} liberada del jail '${jail}' ✅`);
         }
       } else if (!/not found|invalid|no such|Failed to access socket/i.test(out)) {
-        console.error(`❌ [FAIL2BAN ERROR] jail '${jail}':`, out);
+        log.error(`❌ [FAIL2BAN ERROR] jail '${jail}':`, out);
       }
     }
 
@@ -339,7 +340,7 @@ async function recordLogEvent(event) {
     await redisClient.lPush(K_LOGS, JSON.stringify(event));
     await redisClient.lTrim(K_LOGS, 0, MAX_HISTORY - 1);
   } catch (err) {
-    console.error('[REDIS WRITE ERROR logs]', err.message);
+    log.error('[REDIS WRITE ERROR logs]', err.message);
   }
 }
 
@@ -348,7 +349,7 @@ async function recordUfwOperation(op) {
     await redisClient.lPush('security:ufw_ops', JSON.stringify(op));
     await redisClient.lTrim('security:ufw_ops', 0, 49);
   } catch (err) {
-    console.error('[REDIS WRITE ERROR ufw_ops]', err.message);
+    log.error('[REDIS WRITE ERROR ufw_ops]', err.message);
   }
 }
 
@@ -357,7 +358,7 @@ async function recordPubSubMessage(message) {
     await redisClient.lPush(K_PUBSUB, JSON.stringify(message));
     await redisClient.lTrim(K_PUBSUB, 0, MAX_HISTORY - 1);
   } catch (err) {
-    console.error('[REDIS WRITE ERROR pubsub]', err.message);
+    log.error('[REDIS WRITE ERROR pubsub]', err.message);
   }
 }
 
@@ -414,127 +415,144 @@ function parseSshLogLine(line) {
 // =========================================================================
 // 3. Evaluador de Ataques y Reglas de Fallo (Issue #7 Core)
 // =========================================================================
+/** Lee la configuración vigente del motor desde Redis. */
+async function readSettings() {
+  const settings = await redisClient.hGetAll('config:settings');
+  return {
+    maxRetries: parseInt(settings.max_retries || '5', 10),
+    findTimeMin: parseInt(settings.findtime_min || '10', 10),
+    banTimeMin: parseInt(settings.ban_time_min || '60', 10)
+  };
+}
+
+/**
+ * Registra un fallo y devuelve los intentos válidos dentro de la ventana.
+ */
+async function registerFailure(ip, findTimeMin) {
+  const key = `${K_FAILURES_PREFIX}${ip}`;
+  const now = Date.now();
+
+  await redisClient.rPush(key, now.toString());
+  await redisClient.expire(key, findTimeMin * 60);
+
+  const attempts = await redisClient.lRange(key, 0, -1);
+  return attempts.filter((t) => now - parseInt(t, 10) <= findTimeMin * 60 * 1000);
+}
+
+/** Aplica el ban (Redis + UFW) y registra el evento Pub/Sub. */
+async function applyBan(event, attempts, settings, now) {
+  const { banTimeMin } = settings;
+  const banRecord = {
+    ip: event.ip,
+    banned_at: now,
+    expires_at: now + banTimeMin * 60 * 1000,
+    attempts: attempts.length,
+    last_user: event.user,
+    reason: `Superó el límite de ${settings.maxRetries} reintentos en ${settings.findTimeMin} minutos`
+  };
+
+  await redisClient.hSet(K_BANNED, event.ip, JSON.stringify(banRecord));
+
+  const ufwResult = await UfwFirewallManager.banIp(event.ip, 'ssh_bruteforce');
+  await recordUfwOperation({
+    action: 'BAN',
+    ip: event.ip,
+    ok: !!ufwResult.ok,
+    skipped: !!ufwResult.skipped,
+    removed: ufwResult.removed || 0,
+    remaining: ufwResult.rules || 0,
+    error: ufwResult.error || null,
+    timestamp: now
+  });
+
+  await redisClient.del(`${K_FAILURES_PREFIX}${event.ip}`);
+
+  await recordPubSubMessage({
+    id: `pubsub-${now}`,
+    channel: 'channel:unban_events',
+    sender: 'Express_Security_Engine',
+    payload: { action: 'BAN', ip: event.ip, timestamp: now, reason: banRecord.reason }
+  });
+
+  return banRecord;
+}
+
+/** Evalúa si un evento debe ignorarse (whitelist / ya baneada). */
+async function classifyEvent(event) {
+  if (await redisClient.sIsMember('config:whitelist', event.ip)) return 'whitelisted';
+  if (await redisClient.hExists(K_BANNED, event.ip)) return 'already_banned';
+  return 'failure';
+}
+
+/**
+ * Procesa una línea de auth.log: parsea, evalúa y aplica ban si corresponde.
+ */
 async function processSshLogLine(line) {
   if (!line || !line.trim()) return null;
 
   const event = parseSshLogLine(line);
+  if (!event) return null;
 
-  // 1. ¿Es login aceptado?
-  if (event && event.eventType === 'ACCEPTED_KEY') {
-    console.log(`🔑 [LOGIN VÁLIDO] Usuario '${event.user}' autenticado exitosamente desde ${event.ip}. (Sin penalización)`);
+  if (event.eventType === 'ACCEPTED_KEY') {
+    log.info(`🔑 [LOGIN VÁLIDO] Usuario '${event.user}' autenticado desde ${event.ip}. (Sin penalización)`);
     event.actionTaken = 'LOGGED_SUCCESS';
     event.decisionSummary = `Acceso concedido exitosamente para '${event.user}'. No se suma ninguna infracción.`;
     await recordLogEvent(event);
     return { event, banTriggered: false, failureCount: 0 };
   }
 
-  // Linea no relacionada con SSH auth
-  if (!event) return null;
+  const classification = await classifyEvent(event);
 
-  // 2. Verificar Whitelist
-  const isWhitelisted = await redisClient.sIsMember('config:whitelist', event.ip);
-  if (isWhitelisted) {
-    console.log(`🛡️ [WHITELIST] Intento fallido de IP protegida ${event.ip} (Usuario: ${event.user}). Ignorado sin sanción.`);
+  if (classification === 'whitelisted') {
+    log.info(`🛡️ [WHITELIST] Intento fallido de IP protegida ${event.ip} (Usuario: ${event.user}). Ignorado.`);
     event.actionTaken = 'IGNORED_WHITELIST';
-    event.decisionSummary = `La IP ${event.ip} está en la Lista Blanca. El fallo fue perdonado e ignorado.`;
     event.isWhitelisted = true;
+    event.decisionSummary = `La IP ${event.ip} está en la Lista Blanca. El fallo fue perdonado e ignorado.`;
     await recordLogEvent(event);
     return { event, banTriggered: false, failureCount: 0 };
   }
 
-  // 3. Verificar si ya está baneada
-  const isBanned = await redisClient.hExists(K_BANNED, event.ip);
-  if (isBanned) {
-    console.log(`⚠️ [IP YA BANEADA] ${event.ip} sigue intentando ingresar.`);
+  if (classification === 'already_banned') {
+    log.info(`⚠️ [IP YA BANEADA] ${event.ip} sigue intentando ingresar.`);
     event.actionTaken = 'THRESHOLD_EXCEEDED_BANNED';
-    event.decisionSummary = `La IP ${event.ip} ya está bloqueada en el Firewall.`;
     event.triggeredBan = true;
+    event.decisionSummary = `La IP ${event.ip} ya está bloqueada en el Firewall.`;
     await recordLogEvent(event);
     return { event, banTriggered: false, failureCount: 0, alreadyBanned: true };
   }
 
-  // 4. Consultar configuración en Redis
-  const settings = await redisClient.hGetAll('config:settings');
-  const maxRetries = parseInt(settings.max_retries || '5', 10);
-  const findTimeMin = parseInt(settings.findtime_min || '10', 10);
-  const banTimeMin = parseInt(settings.ban_time_min || '60', 10);
-
-  const key = `${K_FAILURES_PREFIX}${event.ip}`;
+  const settings = await readSettings();
+  const attempts = await registerFailure(event.ip, settings.findTimeMin);
   const now = Date.now();
 
-  // Guardar timestamp del fallo con TTL de ventana (Findtime)
-  await redisClient.rPush(key, now.toString());
-  await redisClient.expire(key, findTimeMin * 60);
+  log.info(`⚠️ [FALLO COMPUTADO] IP: ${event.ip} | Faltas: ${attempts.length}/${settings.maxRetries} | User: ${event.user}`);
+  Object.assign(event, {
+    failuresInWindowBefore: Math.max(0, attempts.length - 1),
+    failuresInWindowAfter: attempts.length,
+    maxRetriesAllowed: settings.maxRetries,
+    windowMinutes: settings.findTimeMin
+  });
 
-  // Contar fallos dentro de la ventana de tolerancia
-  const attempts = await redisClient.lRange(key, 0, -1);
-  const validAttempts = attempts.filter((t) => now - parseInt(t, 10) <= findTimeMin * 60 * 1000);
+  if (attempts.length >= settings.maxRetries) {
+    log.warn(`\n🔥 [AMENAZA CONFIRMADA] IP ${event.ip} superó ${settings.maxRetries} intentos en ${settings.findTimeMin}m. ¡APLICANDO BAN!`);
+    await applyBan(event, attempts, settings, now);
 
-  console.log(`⚠️ [FALLO COMPUTADO] IP: ${event.ip} | Faltas: ${validAttempts.length}/${maxRetries} | User: ${event.user}`);
-
-  event.failuresInWindowBefore = Math.max(0, validAttempts.length - 1);
-  event.failuresInWindowAfter = validAttempts.length;
-  event.maxRetriesAllowed = maxRetries;
-  event.windowMinutes = findTimeMin;
-
-  // 5. ¿Superó el umbral de reintentos?
-  let banTriggered = false;
-  if (validAttempts.length >= maxRetries) {
-    console.warn(`\n🔥 [AMENAZA CONFIRMADA] IP ${event.ip} superó ${maxRetries} intentos en ${findTimeMin}m. ¡APLICANDO BAN!`);
-
-    const banRecord = {
-      ip: event.ip,
-      banned_at: now,
-      expires_at: now + banTimeMin * 60 * 1000,
-      attempts: validAttempts.length,
-      last_user: event.user,
-      reason: `Superó el límite de ${maxRetries} reintentos en ${findTimeMin} minutos`
-    };
-
-    // Guardar registro de baneo en Redis
-    await redisClient.hSet(K_BANNED, event.ip, JSON.stringify(banRecord));
-
-    // Ejecutar bloqueo en el cortafuegos de Linux
-    const ufwResult = await UfwFirewallManager.banIp(event.ip, 'ssh_bruteforce');
-    await recordUfwOperation({
-      action: 'BAN',
-      ip: event.ip,
-      ok: !!ufwResult.ok,
-      skipped: !!ufwResult.skipped,
-      removed: ufwResult.removed || 0,
-      remaining: ufwResult.rules || 0,
-      error: ufwResult.error || null,
-      timestamp: now
+    Object.assign(event, {
+      actionTaken: 'THRESHOLD_EXCEEDED_BANNED',
+      triggeredBan: true,
+      decisionSummary: `Se superó el límite (${attempts.length} de ${settings.maxRetries} fallos en ${settings.findTimeMin} min). El motor bloqueó la IP en el Firewall.`
     });
-
-    // Limpiar historial de fallos de la IP
-    await redisClient.del(key);
-
-    banTriggered = true;
-    event.actionTaken = 'THRESHOLD_EXCEEDED_BANNED';
-    event.triggeredBan = true;
-    event.decisionSummary = `Se superó el límite de seguridad (${validAttempts.length} de ${maxRetries} fallos dentro de la ventana de ${findTimeMin} min). El motor bloqueó la IP de inmediato en el Firewall.`;
-
-    // Publicar el evento de baneo para que aparezca en el Dashboard
-    await recordPubSubMessage({
-      id: `pubsub-${now}`,
-      channel: 'channel:unban_events',
-      sender: 'Express_Security_Engine',
-      payload: {
-        action: 'BAN',
-        ip: event.ip,
-        timestamp: now,
-        reason: banRecord.reason
-      }
-    });
-  } else {
-    event.actionTaken = 'RECORDED_FAILURE_PENDING';
-    const remaining = Math.max(0, maxRetries - validAttempts.length);
-    event.decisionSummary = `Intento fallido registrado (${validAttempts.length} de ${maxRetries} tolerados en ${findTimeMin} min). Le quedan ${remaining} ${remaining === 1 ? 'intento' : 'intentos'} antes de ser bloqueado.`;
+    await recordLogEvent(event);
+    return { event, banTriggered: true, failureCount: attempts.length };
   }
 
+  const remaining = Math.max(0, settings.maxRetries - attempts.length);
+  Object.assign(event, {
+    actionTaken: 'RECORDED_FAILURE_PENDING',
+    decisionSummary: `Intento fallido registrado (${attempts.length} de ${settings.maxRetries} en ${settings.findTimeMin} min). Le quedan ${remaining} intento(s).`
+  });
   await recordLogEvent(event);
-  return { event, banTriggered, failureCount: validAttempts.length };
+  return { event, banTriggered: false, failureCount: attempts.length };
 }
 
 // =========================================================================
@@ -542,18 +560,18 @@ async function processSshLogLine(line) {
 // =========================================================================
 function startLogWatcher() {
   if (!fs.existsSync(LOG_PATH)) {
-    console.warn(`[AVISO LOG] Archivo ${LOG_PATH} no encontrado aún. El endpoint de simulación HTTP está activo para pruebas.`);
+    log.warn(`[AVISO LOG] Archivo ${LOG_PATH} no encontrado aún. El endpoint de simulación HTTP está activo para pruebas.`);
     return;
   }
 
   try {
     fs.statSync(LOG_PATH);
   } catch (err) {
-    console.warn(`[AVISO LOG] Sin permisos de lectura sobre ${LOG_PATH} (${err.code}). El endpoint de simulación HTTP está activo para pruebas.`);
+    log.warn(`[AVISO LOG] Sin permisos de lectura sobre ${LOG_PATH} (${err.code}). El endpoint de simulación HTTP está activo para pruebas.`);
     return;
   }
 
-  console.log(`👁️ [MONITOR ACTIVO] Siguiendo registros en tiempo real de: ${LOG_PATH}`);
+  log.info(`👁️ [MONITOR ACTIVO] Siguiendo registros en tiempo real de: ${LOG_PATH}`);
   let fileSize = fs.statSync(LOG_PATH).size;
 
   fs.watchFile(LOG_PATH, { interval: 500 }, (curr, prev) => {
@@ -578,9 +596,9 @@ async function initPubSub() {
   await subClient.subscribe(UNBAN_CHANNEL, async (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(`\n📬 [REDIS PUBSUB] Mensaje recibido en '${UNBAN_CHANNEL}':`, data);
+      log.info(`\n📬 [REDIS PUBSUB] Mensaje recibido en '${UNBAN_CHANNEL}':`, data);
       if (data.action === 'UNBAN' && data.ip) {
-        console.log(`⚡ Ejecutando orden de desbaneo para: ${data.ip} (Solicitado por: ${data.operator || 'Admin'})`);
+        log.info(`⚡ Ejecutando orden de desbaneo para: ${data.ip} (Solicitado por: ${data.operator || 'Admin'})`);
         const ufwResult = await UfwFirewallManager.unbanIp(data.ip);
         await recordUfwOperation({
           action: 'UNBAN',
@@ -595,10 +613,10 @@ async function initPubSub() {
         });
       }
     } catch (e) {
-      console.error('[REDIS PUBSUB ERROR]', e);
+      log.error('[REDIS PUBSUB ERROR]', e);
     }
   });
-  console.log(`📡 [REDIS PUBSUB] Suscrito y escuchando eventos en '${UNBAN_CHANNEL}'`);
+  log.info(`📡 [REDIS PUBSUB] Suscrito y escuchando eventos en '${UNBAN_CHANNEL}'`);
 }
 
 // =========================================================================
@@ -640,7 +658,7 @@ app.post('/api/security/unban', async (req, res) => {
       result
     });
   } catch (err) {
-    console.error('[UNBAN DIRECT ERROR]', err.message);
+    log.error('[UNBAN DIRECT ERROR]', err.message);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -661,7 +679,7 @@ app.post('/api/security/simulate-log', async (req, res) => {
       failureCount: result ? result.failureCount : 0
     });
   } catch (err) {
-    console.error('[SIMULATE ERROR]', err.message);
+    log.error('[SIMULATE ERROR]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -785,9 +803,9 @@ app.get('/api/security/stats', async (req, res) => {
 async function bootstrap() {
   try {
     await redisClient.connect();
-    console.log(`🟢 Conexión con Redis establecida en ${REDIS_URL}`);
+    log.info(`🟢 Conexión con Redis establecida en ${REDIS_URL}`);
   } catch (err) {
-    console.error('🔴 Error conectando con Redis:', err.message);
+    log.error('🔴 Error conectando con Redis:', err.message);
   }
 
   await initPubSub();
@@ -801,34 +819,34 @@ async function bootstrap() {
       (r) => r.action === 'ALLOW' && (r.toPort === 22 || r.toPort === 0)
     );
     if (active && !sshAllowed) {
-      console.warn('');
-      console.warn('⚠️  [UFW SAFETY] UFW está ACTIVO y no hay regla ALLOW para el puerto 22.');
-      console.warn('    Con la política por defecto (deny incoming) el acceso SSH queda bloqueado.');
-      console.warn('    Ejecutá:  sudo ufw allow 22/tcp');
-      console.warn('');
+      log.warn('');
+      log.warn('⚠️  [UFW SAFETY] UFW está ACTIVO y no hay regla ALLOW para el puerto 22.');
+      log.warn('    Con la política por defecto (deny incoming) el acceso SSH queda bloqueado.');
+      log.warn('    Ejecutá:  sudo ufw allow 22/tcp');
+      log.warn('');
     }
 
     // Aviso: fail2ban puede estar baneando en paralelo (nftables/iptables).
     const f2b = await UfwFirewallManager.fail2banStatus();
     if (f2b.installed && f2b.active) {
-      console.log('');
-      console.log('ℹ️  [FAIL2BAN] Detectado y activo. También puede banear IPs por su cuenta');
-      console.log('    (bantime por defecto: 10 min). El desbaneo del Dashboard ahora');
-      console.log('    libera la IP en ufw Y en fail2ban.');
+      log.info('');
+      log.info('ℹ️  [FAIL2BAN] Detectado y activo. También puede banear IPs por su cuenta');
+      log.info('    (bantime por defecto: 10 min). El desbaneo del Dashboard ahora');
+      log.info('    libera la IP en ufw Y en fail2ban.');
       if (f2b.banned.length > 0) {
-        console.log(`    IPs actualmente bloqueadas por fail2ban: ${f2b.banned.join(', ')}`);
+        log.info(`    IPs actualmente bloqueadas por fail2ban: ${f2b.banned.join(', ')}`);
       }
-      console.log('');
+      log.info('');
     }
   } catch (err) {
-    console.error('[SAFETY CHECK]', err.message);
+    log.error('[SAFETY CHECK]', err.message);
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n==========================================================`);
-    console.log(`⚡ Bannedbyabrejeet Security Engine (Mulet) en puerto ${PORT}`);
-    console.log(`🛡️ Control UFW: Activado`);
-    console.log(`==========================================================\n`);
+    log.info(`\n==========================================================`);
+    log.info(`⚡ Bannedbyabrejeet Security Engine (Mulet) en puerto ${PORT}`);
+    log.info(`🛡️ Control UFW: Activado`);
+    log.info(`==========================================================\n`);
   });
 }
 
