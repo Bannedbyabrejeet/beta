@@ -1,80 +1,103 @@
 # 📘 Manual de Ejecución — Bannedbyabrejeet
 
-Guía única con los tres escenarios:
-- **[A] Solo en mi máquina** (todo en Abrego, sin sudo, con Docker)
-- **[B] Máquina Abrego** (`192.168.220.123`) — parte distribuida
-- **[C] Máquina Mulet** (`192.168.220.127`) — parte distribuida
+Único manual del proyecto. Contiene los **tres modos de ejecución**:
 
-> 📁 El repositorio está en **`~/beta`** en ambas máquinas (la guía vieja decía `~/betaa`).
-
-| Componente | Servicio | Puerto | Corre en |
+| Modo | Qué prueba | Dónde corre | Necesita |
 |---|---|---|---|
-| Frontend React + Vite | SPA | 3000 | Abrego |
-| Backend A (FastAPI) | API, Auth, Config | 8000 | Abrego |
-| Redis | Sesiones, config, Pub/Sub | 6379 | Mulet |
-| Backend B (Node) | Motor SSH + driver UFW | 3001 | Mulet |
-| Nginx | Reverse proxy (entrada única) | 80 | Mulet |
+| **A. Todo local (simulado)** | La app y el dashboard sin tocar el firewall | 1 máquina | Docker |
+| **B. Todo local + ataque real** | El ciclo real: SSH → detección → ban → desbaneo | 1 máquina + 1 dispositivo atacante | Docker + `sudo` |
+| **C. Distribuido Abrego–Mulet** | La arquitectura de microservicios en 2 máquinas | 2 máquinas | `sudo` en ambas |
 
-**Punto de entrada general:** `http://192.168.220.127` (Mulet) → Nginx reparte a los 3 servicios.
+> Repositorio en **`~/beta`** (en ambas máquinas).
 
 ---
 
-## 0. Dependencias
+## 1. Arquitectura
 
-### 0.1 Ya instaladas en la máquina de Abrego (`192.168.220.123`)
+```
+┌──────────────────────────── ABREGO (192.168.220.123) ────────────────────────────┐
+│  Frontend React (Vite) :3000          Backend A · FastAPI :8000                   │
+│  · Dashboard (polling 2 s)            · auth (bcrypt) · config · whitelist         │
+│  · Simulador · Redis Inspector        · /api/v1/security/state  (lectura Redis)     │
+└───────────────────────────────────────────┬───────────────────────────────────────┘
+                                            │ Redis (estado compartido)
+┌──────────────────────────── MULET (192.168.220.127) ─────────────────────────────┐
+│  Redis :6379      Backend B · Express :3001        Nginx :80 (entrada única)       │
+│                   · lee /var/log/auth.log                                          │
+│                   · cuenta fallos · ejecuta UFW · Pub/Sub de desbaneo              │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
 
-| Dependencia | Versión | Para qué |
+**Regla de oro:** el ataque SSH debe apuntar a la máquina donde corre el **Backend B**,
+porque es ese proceso el que lee el `auth.log`.
+
+| Modo | Backend B corre en | El ataque apunta a |
 |---|---|---|
-| Node.js | v24.16.0 | Frontend Vite + Backend B |
-| Python | 3.14.4 | Backend A (FastAPI) |
-| Docker | 29.9.1 | Redis y Nginx del modo local |
-| `virtualenv` (pip --user) | 21.14.12 | Crear el `venv` **sin sudo** |
-| `venv` en `backend-a-fastapi` | — | Dependencias Python del Backend A ya instaladas |
-| `node_modules/` (raíz) | — | Dependencias del frontend |
-| `node_modules/` (`backend-b-engine`) | — | `express` + `redis` |
+| A / B | esta máquina (Abrego) | esta máquina (`192.168.220.123`) |
+| C | Mulet | Mulet (`192.168.220.127`) |
 
-Para **reinstalar desde cero** en una máquina nueva:
+**Punto de entrada** (modo C): `http://192.168.220.127` → Nginx reparte a los 3 servicios.
+
+---
+
+## 2. Requisitos previos
+
+### 2.1 Esta máquina (Abrego)
 
 ```bash
-# --- Node (raíz del repo): frontend
+# Node + Python + Docker
+node -v          # ≥ 18
+python3 -V       # ≥ 3.10
+docker info      # el usuario debe estar en el grupo docker
+
+# Dependencias del frontend
 cd ~/beta && npm install
 
-# --- Backend B
+# Dependencias del Backend B
 cd ~/beta/servicios-mulet/backend-b-engine && npm install
 
-# --- Backend A: venv (sin sudo, usando virtualenv)
+# Backend A: venv (sin sudo, con virtualenv)
 pip3 install --user --break-system-packages virtualenv
 cd ~/beta/servicios-abrego/backend-a-fastapi
-~/.local/bin/virtualenv venv
+[ -d venv ] || ~/.local/bin/virtualenv venv
 ./venv/bin/pip install -r requirements.txt
 ```
 
-> 💡 Alternativa con sudo: `sudo apt install python3-venv` → entonces `python3 -m venv venv` funciona
-> y `start.sh` crea el entorno solo. **Ojo**: si el `venv` ya existe, `start.sh` no lo recrea;
-> por eso acá se usó `virtualenv` (crea un venv completo con `pip` incluido).
+> Alternativa con sudo: `sudo apt install python3-venv` y luego `python3 -m venv venv`.
 
-### 0.2 Faltantes en la máquina de Mulet (`192.168.220.127`)
-
-Hay que instalarlas **con sudo en esa máquina**:
+### 2.2 Mulet (solo modo C)
 
 ```bash
 sudo apt update
-sudo apt install -y redis-server nginx nodejs npm ufw
+sudo apt install -y redis-server nginx nodejs npm ufw sshpass
+cd ~/beta/servicios-mulet/backend-b-engine && npm install
 ```
 
-Después, dependencias del proyecto:
+Configurar Redis para que lo vea Abrego:
 
 ```bash
-cd ~/beta/servicios-mulet/backend-b-engine && npm install
+sudo nano /etc/redis/redis.conf
+#   bind 127.0.0.1 ::1   ->   bind 0.0.0.0
+#   protected-mode yes  ->   protected-mode no
+sudo systemctl restart redis-server
+redis-cli ping          # PONG
+```
+
+Firewall de Mulet:
+
+```bash
+sudo ufw allow from 192.168.220.123
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 6379/tcp
+sudo ufw enable
 ```
 
 ---
 
-## [A] Modo Local — todo en MI máquina
+## 3. Modo A — Todo local, simulado
 
-Sin `sudo`, sin máquina de Mulet. Redis y Nginx corren en Docker.
-
-### A.1 Arrancar
+Ideal para mostrar la app sin tocar el firewall.
 
 ```bash
 cd ~/beta
@@ -85,314 +108,290 @@ Salida esperada:
 
 ```
 [1/5] Redis (Docker)          ✓ Redis UP -> localhost:6379 (PONG)
-[2/5] Backend A - FastAPI     ✓ Backend A responde en http://127.0.0.1:8000/api/v1/health
-[3/5] Backend B - Motor SSH   ✓ Backend B responde en http://127.0.0.1:3001/api/security/health
-[4/5] Frontend A - React      ✓ Frontend responde en http://127.0.0.1:3000/
+[2/5] Backend A - FastAPI     ✓ Backend A responde en :8000
+[3/5] Backend B - Motor SSH   ✓ Backend B responde en :3001
+[4/5] Frontend A - React      ✓ Frontend responde en :3000
 [5/5] Nginx reverse proxy     ✓ Nginx UP -> http://localhost
 ```
 
-### A.2 Abrir
+| URL | Qué es |
+|---|---|
+| **http://localhost** | entrada única (equivalente a producción) |
+| http://localhost:3000 | frontend directo · login `admin` / `admin123` |
+| http://localhost:8000/docs | Swagger del Backend A |
+| http://localhost:3001/api/security/health | Backend B |
 
-- **http://localhost** ← entrada única (equivalente a producción)
-- http://localhost:3000 → frontend directo · login `admin` / `admin123`
-- http://localhost:8000/docs → Swagger del Backend A
-- http://localhost:3001/api/security/health → Backend B
+En este modo el Backend B usa un **log de prueba** (`local-dev/auth.log`) y un **shim de UFW**
+(`local-dev/bin/ufw`) que simula las reglas en `local-dev/ufw-rules.log`.
+**Un ataque SSH real NO se detecta** en este modo.
 
-### A.3 Comandos de control
-
-```bash
-./local-dev/run-local.sh start      # modo local: motor con log de prueba (sin root)
-./local-dev/run-local.sh start-real # modo REAL: lee /var/log/auth.log con sudo (para ataques reales)
-./local-dev/run-local.sh status     # tabla de estado de los 5 servicios
-./local-dev/run-local.sh logs       # sigue todos los logs (Ctrl+C para salir)
-./local-dev/run-local.sh stop       # detiene todo
-./local-dev/run-local.sh restart    # reinicia
-./local-dev/run-local.sh purge      # borra contenedores + datos de Redis
-```
-
-### A.4 Qué cambia respecto a producción
-
-| | Producción | Modo local |
-|---|---|---|
-| Redis | `192.168.220.127:6379` (Mulet) | `127.0.0.1:6379` (contenedor Docker) |
-| Nginx | upstreams → `192.168.220.123` | upstreams → `127.0.0.1` |
-| UFW | real (necesita root) | **simulado** por `local-dev/bin/ufw` → `local-dev/ufw-rules.log` |
-| `auth.log` | `/var/log/auth.log` (root) | `local-dev/auth.log` (escribible) |
-
-> El shim de UFW se inyecta en el `PATH` del Backend B, por eso los logs dicen
-> `✅ [UFW ÉXITO]` igual que en producción, pero **no se toca el firewall real**.
-
-### A.5 Levantar a mano (5 terminales)
+Para probar el motor sin atacar:
 
 ```bash
-# T1 - Redis
-docker rm -f beta-redis 2>/dev/null
-docker run -d --name beta-redis -p 6379:6379 redis:7-alpine
-
-# T2 - Backend A
-cd ~/beta/servicios-abrego/backend-a-fastapi
-REDIS_HOST=127.0.0.1 REDIS_PORT=6379 ./start.sh
-
-# T3 - Backend B
-cd ~/beta/servicios-mulet/backend-b-engine
-touch ~/beta/local-dev/auth.log
-REDIS_URL=redis://127.0.0.1:6379 PORT=3001 \
-SSH_LOG_PATH=$HOME/beta/local-dev/auth.log \
-SKIP_SUDO=1 PATH=$HOME/beta/local-dev/bin:$PATH \
-./start.sh
-
-# T4 - Frontend
-cd ~/beta && npm run dev
-
-# T5 - Nginx
-cd ~/beta
-docker rm -f beta-nginx 2>/dev/null
-docker run -d --name beta-nginx --network host \
-  -v "$PWD/local-dev/nginx-local.conf:/etc/nginx/nginx.conf:ro" nginx:alpine
-```
-
-### A.6 Prueba del ciclo completo (ban + unban)
-
-```bash
-# 1) 5 intentos SSH fallidos -> el motor cuenta, banea en Redis y crea la regla
 for i in 1 2 3 4 5; do
   curl -s -X POST http://localhost/api/security/simulate-log \
     -H 'Content-Type: application/json' \
-    -d "{\"log_line\":\"Oct 21 15:00:0$i etec sshd[1234]: Failed password for invalid user root from 203.0.113.77 port 5555$i ssh2\"}"
+    -d "{\"log_line\":\"Oct 30 10:00:0$i etec sshd[1234]: Failed password for manu_abrego from 203.0.113.77 port 5555$i ssh2\"}"
 done
-
-# 2) ver el ban
-docker exec -it beta-redis redis-cli HGETALL ip:banned
-PATH=$HOME/beta/local-dev/bin:$PATH ufw status numbered
-
-# 3) desbanear: FastAPI publica en Redis Pub/Sub -> Backend B borra la regla
-curl -s -X POST http://localhost/api/v1/security/unban \
-  -H 'Content-Type: application/json' -d '{"ip":"203.0.113.77"}'
-
-# 4) confirmar
-docker exec -it beta-redis redis-cli HGETALL ip:banned    # vacío
-PATH=$HOME/beta/local-dev/bin:$PATH ufw status numbered    # sin reglas
 ```
-
-En el log del Backend B (`local-dev/logs/backend-b.log`) se ve:
-
-```
-⚠️ [FALLO COMPUTADO] IP: 203.0.113.77 | Faltas: 5/5 | User: root
-🔥 [AMENAZA CONFIRMADA] IP 203.0.113.77 superó 5 intentos en 10m. ¡APLICANDO BAN!
-🛡️ [UFW EXEC BAN] ufw insert 1 deny from 203.0.113.77 to any port 22 comment '...'
-✅ [UFW ÉXITO] IP 203.0.113.77 BLOQUEADA en el puerto 22.
-📬 [REDIS PUBSUB] Mensaje recibido en 'channel:unban_events'
-🔓 [UFW EXEC UNBAN] ufw delete deny from 203.0.113.77 to any port 22
-✅ [UFW ÉXITO] Regla de bloqueo para IP 203.0.113.77 eliminada de UFW.
-```
-
-### A.7 La app ya NO es una maqueta
-
-> 🔄 **Actualizado**: antes el frontend generaba todos los datos en el navegador (mock).
-> Ahora `src/services/securityEngine.ts` consume la API real y refresca el estado cada 2 s.
-
-| Capa | Dónde vive | Cómo se conecta |
-|---|---|---|
-| Frontend (Abrego) | `src/services/securityEngine.ts` + `src/services/api.ts` | `fetch` a `/api/v1/*` y `/api/security/*` |
-| Proxy | Vite dev server | `/api/v1` y `/api/security` → `VITE_API_TARGET` |
-| Backend A | `servicios-abrego/backend-a-fastapi` | Redis |
-| Backend B | `servicios-mulet/backend-b-engine` | Redis + `/var/log/auth.log` + UFW |
-
-**El destino del proxy se define con `VITE_API_TARGET`:**
-
-```bash
-# Modo local (Nginx en esta misma máquina)
-VITE_API_TARGET=http://localhost npm run dev
-
-# Modo distribuido (Nginx en Mulet)
-VITE_API_TARGET=http://192.168.220.127 npm run dev
-```
-
-`servicios-abrego/frontend-a-react/start.sh` ya usa `http://192.168.220.127` por defecto
-(que es el modo distribuido) y acepta `VITE_API_TARGET` por entorno.
-
-**Lo que ahora es real en el Dashboard:**
-
-- ✅ Contadores de logs SSH → eventos reales guardados por el Backend B en `security:logs`
-- ✅ IPs baneadas → hash `ip:banned` de Redis
-- ✅ Reglas UFW → `ufw status numbered` ejecutado por el Backend B (`/api/security/ufw-rules`)
-- ✅ Whitelist y configuración → `config:whitelist` / `config:settings`
-- ✅ Login / setup admin / reset de contraseña → `auth:admin` con bcrypt en Redis
-- ✅ Botón **Desbanear** → `POST /api/v1/security/unban` → Pub/Sub → borrado real de la regla
-- ✅ Simulador de ataques → `POST /api/security/simulate-log` → motor real → UFW real
-
-**Único resto de mock:** los datos geográfica (país/ciudad) de las IPs, porque no hay
-servicio de geolocalización. Se resuelve con `SAMPLE_GEO_MAP` en `src/data/presetData.ts`.
 
 ---
 
-## [B] Máquina ABREGO (`192.168.220.123`)
+## 4. Modo B — Todo local + ataque real desde otro dispositivo
 
-### B.1 Preparar (una sola vez)
+Es el modo de la presentación: **una máquina externa ataca a esta**.
 
-```bash
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv nodejs npm ufw
-sudo ufw allow from 192.168.220.127        # deja entrar a Mulet
-
-# dependencias del proyecto
-cd ~/beta && npm install                                   # frontend
-cd ~/beta/servicios-mulet/backend-b-engine && npm install   # (no se usa acá, pero por si acaso)
-pip3 install --user --break-system-packages virtualenv
-cd ~/beta/servicios-abrego/backend-a-fastapi
-~/.local/bin/virtualenv venv && ./venv/bin/pip install -r requirements.txt
-```
-
-### B.2 Arrancar (2 terminales)
-
-**Terminal 1 — Backend A (FastAPI)**
+### 4.1 Preparar el firewall (una sola vez)
 
 ```bash
-cd ~/beta/servicios-abrego/backend-a-fastapi
-chmod +x start.sh
-./start.sh
-# → Uvicorn running on http://0.0.0.0:8000
-# → Swagger: http://192.168.220.123:8000/docs
+sudo ufw allow 22/tcp
+sudo ufw status numbered
+#   [ 1] 22/tcp  ALLOW IN  Anywhere     <- imprescindible
 ```
 
-> `start.sh` usa `REDIS_HOST=192.168.220.127` (Mulet) por defecto.
-> Para apuntar a otro Redis: `REDIS_HOST=127.0.0.1 ./start.sh`
+> Si vas a habilitar UFW: **primero** el `allow 22/tcp`, **después** `sudo ufw enable`.
+> Sin esa regla, SSH queda bloqueado por la política por defecto.
 
-**Terminal 2 — Frontend (Vite)**
+### 4.2 Decidir qué hace fail2ban
 
+`fail2ban` banea por su cuenta en nftables y puede "tapar" la demo:
+
+```bash
+# Opción recomendada para la demo: que solo actúe nuestro sistema
+sudo systemctl stop fail2ban
+
+# Opción B: dejarlo. El dashboard ahora libera la IP también en fail2ban.
+```
+
+### 4.3 Arrancar el motor real
+
+```bash
+cd ~/beta
+./local-dev/run-local.sh start-real
+```
+
+- Pide la contraseña de `sudo` (necesario para leer `/var/log/auth.log`, ejecutar `ufw` y hablar con fail2ban).
+- El Backend B queda **en primer plano**: dejá esa terminal a la vista.
+- Debe mostrar:
+
+```
+ℹ️  [FAIL2BAN] Detectado y activo...        (si fail2ban está corriendo)
+👁️ [MONITOR ACTIVO] Siguiendo registros en tiempo real de: /var/log/auth.log
+📡 [REDIS PUBSUB] Suscrito y escuchando eventos en 'channel:unban_events'
+```
+
+### 4.4 Abrir el dashboard
+
+**http://localhost:3000** → si es la primera vez, crear la cuenta de administrador → login.
+
+### 4.5 Atacar desde el otro dispositivo
+
+```bash
+# En el celular / otro PC de la red
+ssh manu_abrego@192.168.220.123
+```
+
+- Escribí una **contraseña incorrecta**.
+- **Repetí la conexión 2–3 veces**: cada conexión genera 2–3 líneas `Failed password`,
+  así que el umbral (5) se alcanza con ~2 conexiones.
+- ⚠️ **No uses `root`**: `PermitRootLogin` está en `prohibit-password` y no genera `Failed password`.
+- La IP del atacante **no** está en la whitelist (`127.0.0.1`, `::1`, `192.168.220.123`) → se sanciona.
+
+### 4.6 Qué tiene que pasar
+
+**En la terminal del Backend B:**
+
+```
+⚠️ [FALLO COMPUTADO] IP: 192.168.220.x | Faltas: 1/5 | User: manu_abrego
+...
+🔥 [AMENAZA CONFIRMADA] IP 192.168.220.x superó 5 intentos en 10m. ¡APLICANDO BAN!
+🛡️ [UFW EXEC BAN] ufw insert 1 deny from 192.168.220.x to any port 22 comment '...'
+✅ [UFW ÉXITO] IP 192.168.220.x BLOQUEADA en el puerto 22.
+```
+
+**En el dashboard** (se refresca solo cada 2 s):
+
+| Indicador | Antes | Después |
+|---|---|---|
+| Visor de Logs SSH | 0 | 5+ |
+| IPs Sancionadas en UFW | 0 | 1 |
+| Reglas UFW Activas | — | `[1] 22 DENY IN <IP>` |
+
+**En el firewall:**
+
+```bash
+sudo ufw status numbered
+#   [ 1] 22        DENY IN   192.168.220.x
+#   [ 2] 22/tcp    ALLOW IN  Anywhere
+```
+
+Y el atacante ya **no puede entrar** (`Connection refused`, porque ufw `deny` = REJECT).
+
+### 4.7 Desbanear
+
+En el dashboard → **"Desbanear (Pub/Sub)"**. El sistema:
+
+1. Publica en `channel:unban_events` (FastAPI).
+2. El Backend B recibe el mensaje y ejecuta `ufw delete` **verificando** el resultado.
+3. Si `fail2ban` tenía la IP, también la libera.
+4. El Dashboard re-lee las reglas reales y te dice si quedó libre o si **sigue bloqueada**.
+
+**Esperado en el Backend B:**
+
+```
+📬 [REDIS PUBSUB] Mensaje recibido en 'channel:unban_events': { action: 'UNBAN', ip: '...' }
+⚡ Ejecutando orden de desbaneo para: 192.168.220.x
+🔓 [UFW EXEC UNBAN] 1 regla(s) encontrada(s) para 192.168.220.x
+   ↳ regla eliminada por especificación
+   ↳ fail2ban: IP 192.168.220.x liberada del jail 'sshd' ✅
+✅ [UFW ÉXITO] Regla de bloqueo para IP 192.168.220.x eliminada de UFW (1 borrada(s)).
+```
+
+> La línea `❌ Could not find rule '1'` puede aparecer: es normal, la regla ya se borró en el
+> paso anterior y el sistema reintenta por posición. Lo que importa es el `✅ [UFW ÉXITO]`
+> y que `sudo ufw status numbered` muestre **solo el ALLOW**.
+
+---
+
+## 5. Modo C — Distribuido Abrego–Mulet
+
+### 5.1 Mulet (3 terminales)
+
+**T1 — Redis** (servicio del sistema)
+```bash
+redis-cli ping          # PONG
+```
+
+**T2 — Nginx**
+```bash
+cd ~/beta/servicios-mulet/proxy-nginx
+chmod +x setup-nginx.sh && ./setup-nginx.sh
+```
+
+**T3 — Backend B** (dejar visible: ahí se ve el ataque)
+```bash
+cd ~/beta/servicios-mulet/backend-b-engine
+chmod +x start.sh && ./start.sh
+#   👁️ [MONITOR ACTIVO] ... /var/log/auth.log
+```
+
+### 5.2 Abrego (2 terminales)
+
+**T1 — Backend A**
+```bash
+cd ~/beta/servicios-abrego/backend-a-fastapi
+chmod +x start.sh && ./start.sh
+```
+
+**T2 — Frontend** (el proxy apunta a Mulet)
 ```bash
 cd ~/beta/servicios-abrego/frontend-a-react
-chmod +x start.sh
-./start.sh
-# → VITE ready ... Network: http://192.168.220.123:3000
+chmod +x start.sh && ./start.sh
+#   🔗 API (proxy Vite): http://192.168.220.127
 ```
 
-### B.3 Verificar
+### 5.3 Verificar
 
 ```bash
 curl -s http://192.168.220.123:8000/api/v1/health
 # {"status":"healthy",...,"redis_connected":true,"redis_target":"192.168.220.127:6379"}
-```
 
----
-
-## [C] Máquina MULET (`192.168.220.127`)
-
-### C.1 Preparar (una sola vez)
-
-```bash
-sudo apt update
-sudo apt install -y redis-server nginx nodejs npm ufw
-
-# permitir a Abrego y abrir los puertos
-sudo ufw allow from 192.168.220.123
-sudo ufw allow 80/tcp
-sudo ufw allow 6379/tcp
-sudo ufw enable
-
-cd ~/beta/servicios-mulet/backend-b-engine && npm install
-```
-
-### C.2 Configurar Redis para que lo vea Abrego
-
-```bash
-sudo nano /etc/redis/redis.conf
-```
-- `bind 127.0.0.1 ::1` → `bind 0.0.0.0`
-- `protected-mode yes` → `protected-mode no`
-
-```bash
-sudo systemctl restart redis-server
-redis-cli ping      # PONG
-```
-
-### C.3 Arrancar (3 terminales)
-
-**Terminal 1 — Redis** (ya corre como servicio, solo verificá)
-```bash
-redis-cli ping      # PONG
-```
-
-**Terminal 2 — Nginx**
-```bash
-cd ~/beta/servicios-mulet/proxy-nginx
-chmod +x setup-nginx.sh
-./setup-nginx.sh
-# → Nginx configurado y activo en el puerto 80
-```
-
-**Terminal 3 — Backend B** (necesita sudo para UFW y `auth.log`)
-```bash
-cd ~/beta/servicios-mulet/backend-b-engine
-chmod +x start.sh
-./start.sh
-# → ⚡ Bannedbyabrejeet Security Engine (Mulet) en puerto 3001
-# → 🛡️ Control UFW: Activado
-```
-
-> `start.sh` pide la contraseña de `sudo` (para `ufw` y leer `/var/log/auth.log`).
-> Con `SKIP_SUDO=1` arranca sin privilegios, pero entonces **no puede banear de verdad**.
-
-### C.4 Verificar
-
-```bash
 curl -s http://192.168.220.127/api/security/health
-redis-cli ping
-sudo ufw status numbered
+curl -s http://192.168.220.127/api/v1/health
 ```
 
----
+### 5.4 Atacar (apuntando a Mulet)
 
-## 🚀 Orden de arranque el día de la presentación
+Desde un celular/otro PC, o automatizado desde Mulet:
 
-1. **Mulet → Redis** (`redis-cli ping` = PONG)
-2. **Mulet → Nginx** (`./setup-nginx.sh`)
-3. **Mulet → Backend B** (`./start.sh`) — *dejar esta terminal visible: ahí se ve el ban*
-4. **Abrego → Backend A** (`./start.sh`)
-5. **Abrego → Frontend** (`./start.sh`)
-6. Los evaluadores entran a **`http://192.168.220.127`**
+```bash
+# Opción manual (celular): 2-3 intentos con contraseña incorrecta
+ssh manu_abrego@192.168.220.127
 
-### Guion de demo rápido
+# Opción automatizada (en Mulet)
+for i in 1 2 3 4 5; do
+  sshpass -p "ClaveIncorrecta" ssh -o StrictHostKeyChecking=no \
+    -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+    manu_abrego@192.168.220.127
+done
+```
 
-1. Entrar por `http://192.168.220.127` → Nginx muestra el frontend de Abrego.
-2. `http://192.168.220.127/docs` → Swagger (corre en Abrego, guarda en Redis de Mulet).
-3. Desde otra máquina: `ssh root@192.168.220.127` 5 veces → en la terminal de Mulet
-   aparece `🔥 [AMENAZA CONFIRMADA]` y `sudo ufw status numbered` muestra la regla `DENY IN <IP>`.
-4. En el dashboard (pantalla de Abrego) tocá **Desbanear** → FastAPI publica en
-   `channel:unban_events` → en la terminal de Mulet aparece `📬 [REDIS PUBSUB]` y
-   `✅ [UFW ÉXITO] Regla de bloqueo eliminada`.
+Los evaluadores entran por **http://192.168.220.127**.
 
 ---
 
-## 🩺 Troubleshooting
+## 6. Operación diaria
+
+```bash
+./local-dev/run-local.sh start       # modo A
+./local-dev/run-local.sh start-real  # modo B (sudo)
+./local-dev/run-local.sh status
+./local-dev/run-local.sh logs        # sigue todos los logs
+./local-dev/run-local.sh stop
+./local-dev/run-local.sh restart
+./local-dev/run-local.sh purge       # borra contenedores + datos de Redis
+```
+
+Redis: `docker exec -it beta-redis redis-cli` · Reglas simuladas: `cat local-dev/ufw-rules.log`
+
+> `start-real` corre el Backend B como **root**: si quedó vivo, `stop` no puede matarlo y te avisa.
+> En ese caso: `sudo kill -9 <PID>`.
+
+---
+
+## 7. Verificación (checklist)
+
+| # | Verificación | Comando / lugar | Esperado |
+|---|---|---|---|
+| 1 | Redis | `docker exec beta-redis redis-cli ping` | `PONG` |
+| 2 | Backend A + Redis | `curl -s localhost/api/v1/health` | `redis_connected: true` |
+| 3 | Backend B | `curl -s localhost/api/security/health` | JSON `healthy` |
+| 4 | Monitor real | terminal del Backend B | `👁️ [MONITOR ACTIVO]` |
+| 5 | SSH accesible | desde el otro equipo: `ssh manu_abrego@192.168.220.123` | pide contraseña |
+| 6 | Ban | terminal del Backend B | `🔥 [AMENAZA CONFIRMADA]` |
+| 7 | Regla real | `sudo ufw status numbered` | `DENY IN <IP>` + `ALLOW 22/tcp` |
+| 8 | Dashboard | pantalla | logs + IP sancionada |
+| 9 | Desbaneo | botón "Desbanear" | `📬 [REDIS PUBSUB]` + regla borrada |
+| 10 | Acceso restaurado | `ssh manu_abrego@192.168.220.123` | vuelve a pedir contraseña |
+| 11 | ALLOW intacto | `sudo ufw status numbered` | sigue el `ALLOW 22/tcp` |
+| 12 | fail2ban | `sudo fail2ban-client status sshd` | sin la IP |
+
+---
+
+## 8. Problemas frecuentes
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| `ensurepip is not available` | falta `python3-venv` | `sudo apt install python3-venv` o usar `virtualenv` (ver 0.1) |
-| `redis_connected: false` | Redis caído o firewall | `redis-cli ping` en Mulet + `sudo ufw allow 6379/tcp` |
-| `/api/security/health` → 404 | Nginx quitando el prefijo | `proxy_pass http://backend_b_engine;` **sin** barra final (ya corregido) |
-| `Port 3000 is in use` | quedó un vite zombie | `ss -ltnp \| grep 3000` y matar el PID; o `./local-dev/run-local.sh stop` |
-| `Cannot GET /health` vía Nginx | mismo bug del prefijo | ver arriba |
-| Frontend no carga datos reales | es mock por diseño | usar la API (Swagger / `curl`) |
-| `Permission denied (publickey)` por SSH | clave no copiada | `ssh-copy-id <usuario>@192.168.220.127` |
+| El ataque no aparece en el dashboard | estás en modo A (`start`) | usar `start-real` |
+| El Backend B no dice `MONITOR ACTIVO` | corre sin root | `./local-dev/run-local.sh start-real` |
+| `Connection refused` **antes** de atacar | falta `allow 22/tcp` (UFW activo) | `sudo ufw allow 22/tcp` |
+| `Connection refused` **después** de desbanear | fail2ban tiene la IP | `sudo fail2ban-client set sshd unbanip <IP>` |
+| `ufw status` limpio pero sigue bloqueado | fail2ban (nftables) | idem anterior; el dashboard ya lo libera |
+| El ataque no genera eventos | usaste `root` | usar `manu_abrego` |
+| El ataque no genera eventos | la IP está en la whitelist | atacar desde otra IP |
+| Banea en 2 intentos | cada conexión deja 2-3 líneas de fallo | esperado; no es un error |
+| El dashboard dice "sin conexión con el backend" | el proxy no llega a Mulet | `curl http://192.168.220.127/api/v1/health` |
+| `ensurepip is not available` | falta `python3-venv` | usar `virtualenv` (sección 2.1) |
+| `Port 3000 is in use` | quedó un vite colgado | `ss -ltnp \| grep 3000` y matar el PID |
+| El proceso `start-real` no muere | corre como root | `sudo kill -9 <PID>` |
+| Nginx devuelve 404 en `/api/security/*` | `proxy_pass` con barra final | ya corregido (`proxy_pass http://backend_b_engine;`) |
 
 ---
 
-## 📂 Archivos modificados/creados
+## 9. Limpieza
 
-| Archivo | Cambio |
-|---|---|
-| `local-dev/` | **nuevo**: modo local completo (script, nginx conf, shim de UFW, README) |
-| `src/services/api.ts` | **nuevo**: cliente HTTP contra Backend A y Backend B |
-| `src/services/securityEngine.ts` | **reescrito**: estado real por polling (2 s) en lugar de mock en memoria |
-| `src/App.tsx` | arranca/detiene el polling del backend |
-| `src/components/*.tsx` | handlers `async` (login, setup, unban, whitelist, config, simulador) |
-| `servicios-mulet/backend-b-engine/server.js` | parsea y **persiste los eventos en Redis**, endpoints `/logs`, `/banned`, `/failures`, `/pubsub`, `/ufw-rules`, `/stats`, CORS |
-| `servicios-abrego/backend-a-fastapi/main.py` | `GET /api/v1/security/state`, `auth/status` con identidad, `SystemSettings` completo, registro de unban en `security:pubsub` |
-| `vite.config.ts` | proxy de desarrollo `/api/v1` y `/api/security` → `VITE_API_TARGET` |
-| `servicios-abrego/frontend-a-react/start.sh` | `VITE_API_TARGET` configurable (default: Nginx de Mulet) |
-| `servicios-mulet/proxy-nginx/nginx.conf` | **fix**: `proxy_pass` sin barra final (bug del prefijo `/api/security/`) |
-| `servicios-abrego/backend-a-fastapi/start.sh` | `REDIS_HOST`/`REDIS_PORT`/`JWT_SECRET_KEY` sobrescribibles por entorno |
-| `servicios-mulet/backend-b-engine/start.sh` | soporte `SKIP_SUDO=1` y `REDIS_URL`/`PORT`/`SSH_LOG_PATH` por entorno |
-| `.gitignore` | ignora `local-dev/run/`, `__pycache__/`, logs locales |
-| `MANUAL_EJECUCION.md`, `PRUEBA_ATAQUE_MULET.md`, `PLAN_PRUEBA_SSH.md` | **nuevos**: manual de ejecución y runbook de la prueba de ataque |
+```bash
+# Local
+./local-dev/run-local.sh stop
+./local-dev/run-local.sh purge          # opcional: borra datos de Redis
+
+# Firewall (si quedó alguna regla)
+sudo ufw status numbered
+sudo ufw delete deny from <IP> to any port 22
+
+# fail2ban
+sudo fail2ban-client set sshd unbanip <IP>
+
+# Redis (modo distribuido)
+redis-cli FLUSHALL
+```

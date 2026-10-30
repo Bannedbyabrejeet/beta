@@ -1,3 +1,5 @@
+export type Tab = 'landing' | 'dashboard' | 'auth' | 'swagger' | 'architecture' | 'redis';
+
 export type EventType = 'FAILED_PASSWORD' | 'INVALID_USER' | 'ACCEPTED_KEY' | 'PREAUTH_DISCONNECT';
 
 export interface LogVerificationDetails {
@@ -83,7 +85,7 @@ export interface RedisKeyItem {
   key: string;
   type: 'hash' | 'set' | 'list' | 'string';
   ttl: number | string; // -1 for persistent, or seconds
-  value: any;
+  value: unknown;
 }
 
 export interface AdminUser {

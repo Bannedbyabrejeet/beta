@@ -8,6 +8,7 @@ Conexión Redis: MULET (IP: 192.168.220.127:6379)
 
 import os
 import json
+import logging
 import redis
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -17,13 +18,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import bcrypt
 
+# Logger con niveles (sin print() en el código de producción)
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("bannedbyabrejeet")
+
 REDIS_HOST = os.getenv("REDIS_HOST", "192.168.220.127")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_PASS = os.getenv("REDIS_PASSWORD", None)
 JWT_SECRET = os.getenv("JWT_SECRET_KEY", "bannedbyabrejeet_enterprise_secret_2026")
 JWT_ALGORITHM = "HS256"
 
-print(f"[FASTAPI INIT] Conectando a Redis en {REDIS_HOST}:{REDIS_PORT}...")
+logger.info(f"[FASTAPI INIT] Conectando a Redis en {REDIS_HOST}:{REDIS_PORT}...")
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS, decode_responses=True)
 
 app = FastAPI(
@@ -88,9 +96,9 @@ def startup_db_init():
         r.sadd("config:whitelist", "127.0.0.1")
         r.sadd("config:whitelist", "::1")
         r.sadd("config:whitelist", "192.168.220.123")
-        print("[FASTAPI STARTUP] Conexión a Redis exitosa y configuración inicial verificada.")
+        logger.info("[FASTAPI STARTUP] Conexión a Redis exitosa y configuración inicial verificada.")
     except Exception as e:
-        print(f"[FASTAPI WARNING] No se pudo inicializar Redis de inmediato: {e}")
+        logger.info(f"[FASTAPI WARNING] No se pudo inicializar Redis de inmediato: {e}")
 
 @app.get("/api/v1/health", tags=["System Health"])
 def health_check():
@@ -259,73 +267,66 @@ def trigger_unban(req: UnbanRequest):
         }
     }))
     r.ltrim("security:pubsub", 0, 199)
-    print(f"[UNBAN TRIGGERED] IP {req.ip} publicada en 'channel:unban_events'. Suscriptores notificados: {subscribers}")
+    logger.info(f"[UNBAN TRIGGERED] IP {req.ip} publicada en 'channel:unban_events'. Suscriptores notificados: {subscribers}")
     return {
         "message": f"Unban order published to channel:unban_events for IP {req.ip}",
         "subscribers_notified": subscribers
     }
 
 
+def _read_json_list(key: str, limit: int):
+    """Lee una lista de Redis que contiene documentos JSON."""
+    items = []
+    for raw in r.lrange(key, 0, limit - 1):
+        try:
+            items.append(json.loads(raw))
+        except Exception:
+            pass
+    return items
+
+
+def _read_banned():
+    banned = []
+    for ip, value in r.hgetall("ip:banned").items():
+        try:
+            record = json.loads(value)
+        except Exception:
+            record = {"reason": value}
+        banned.append({"ip": ip, **record})
+    return banned
+
+
+def _read_failures():
+    failures = []
+    for key in r.keys("ip:failures:*"):
+        ip = key.split("ip:failures:")[-1]
+        timestamps = [int(t) for t in r.lrange(key, 0, -1)]
+        failures.append({
+            "ip": ip,
+            "timestamps": timestamps,
+            "firstSeen": min(timestamps) if timestamps else 0,
+            "lastSeen": max(timestamps) if timestamps else 0,
+            "totalAttempts": len(timestamps),
+            "ttlSeconds": r.ttl(key),
+            "targetedUsers": [],
+        })
+    return failures
+
+
 @app.get("/api/v1/security/state", tags=["Security Engine Bridge"])
 def security_state():
     """
-    Estado consolidado de seguridad para el Frontend: IPs baneadas, contadores
-    de fallos, eventos SSH y mensajes Pub/Sub. Todo leído desde Redis, que es
-    la fuente de verdad compartida entre el Servicio 1 y el Servicio 2.
+    Estado consolidado de seguridad para el Frontend. Todo se lee de Redis,
+    que es la fuente de verdad compartida entre el Servicio 1 y el Servicio 2.
     """
     try:
-        banned_raw = r.hgetall("ip:banned")
-        banned = []
-        for ip, value in banned_raw.items():
-            try:
-                record = json.loads(value)
-            except Exception:
-                record = {"reason": value}
-            banned.append({"ip": ip, **record})
-
-        failure_keys = r.keys("ip:failures:*")
-        failures = []
-        for key in failure_keys:
-            ip = key.split("ip:failures:")[-1]
-            timestamps = [int(t) for t in r.lrange(key, 0, -1)]
-            failures.append({
-                "ip": ip,
-                "timestamps": timestamps,
-                "firstSeen": min(timestamps) if timestamps else 0,
-                "lastSeen": max(timestamps) if timestamps else 0,
-                "totalAttempts": len(timestamps),
-                "ttlSeconds": r.ttl(key),
-                "targetedUsers": []
-            })
-
-        logs = []
-        for raw in r.lrange("security:logs", 0, 199):
-            try:
-                logs.append(json.loads(raw))
-            except Exception:
-                pass
-
-        messages = []
-        for raw in r.lrange("security:pubsub", 0, 199):
-            try:
-                messages.append(json.loads(raw))
-            except Exception:
-                pass
-
-        ufw_ops = []
-        for raw in r.lrange("security:ufw_ops", 0, 49):
-            try:
-                ufw_ops.append(json.loads(raw))
-            except Exception:
-                pass
-
         return {
-            "banned": banned,
-            "failures": failures,
-            "logs": logs,
-            "pubsub": messages,
-            "ufw_ops": ufw_ops,
-            "timestamp": datetime.utcnow().isoformat()
+            "banned": _read_banned(),
+            "failures": _read_failures(),
+            "logs": _read_json_list("security:logs", 200),
+            "pubsub": _read_json_list("security:pubsub", 200),
+            "ufw_ops": _read_json_list("security:ufw_ops", 50),
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No se pudo leer el estado de Redis: {e}")

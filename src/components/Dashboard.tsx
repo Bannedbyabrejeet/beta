@@ -1,40 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  ShieldAlert, 
-  Terminal, 
-  Sliders, 
-  Users, 
-  Radio, 
-  Search, 
-  Filter, 
-  Trash2, 
-  Plus, 
-  Clock, 
-  Zap, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Lock, 
-  KeyRound, 
-  Flame, 
-  Globe, 
-  RefreshCw, 
-  ChevronRight,
-  ExternalLink,
-  ShieldCheck,
-  Send,
-  Database,
-  Layers,
-  Sparkles,
-  CheckCircle,
-  HelpCircle,
-  Eye,
-  Info,
-  FileCheck,
-  Cpu
-} from 'lucide-react';
+import { ShieldAlert, Terminal, Sliders, Search, Filter, Trash2, Plus, Clock, Zap, AlertTriangle, CheckCircle2, Lock, KeyRound, Flame, Globe, RefreshCw, ExternalLink, ShieldCheck, Database, Sparkles, CheckCircle, Eye, FileCheck, Cpu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { securityEngine } from '../services/securityEngine';
 import { SystemConfig, SshLogEvent, BannedIp, EventType, UfwRuleEntry } from '../types';
+import { RawUfwOperation } from '../services/apiTypes';
 
 interface DashboardProps {
   onOpenAttackModal: () => void;
@@ -42,6 +11,17 @@ interface DashboardProps {
   onNavigateToArchitecture: () => void;
   onNavigateToRedis: () => void;
 }
+
+type VerificationFilter = 'ALL' | 'WHITELIST' | 'SUCCESS' | 'FAILURE' | 'BANNED';
+
+/** Filtros de verificación del visor de logs (antes duplicados en el JSX). */
+const VERIFICATION_FILTERS: Array<{ id: VerificationFilter; label: string }> = [
+  { id: 'ALL', label: 'Todos los Registros' },
+  { id: 'WHITELIST', label: '🛡️ Perdonados (Whitelist)' },
+  { id: 'SUCCESS', label: '✅ Accesos Válidos' },
+  { id: 'FAILURE', label: '⚠️ Fallos Computados' },
+  { id: 'BANNED', label: '🔥 IPs Sancionadas' }
+];
 
 export const Dashboard: React.FC<DashboardProps> = ({
   onOpenAttackModal,
@@ -52,7 +32,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Active Dashboard Sub-view
   const [subView, setSubView] = useState<'console' | 'banned' | 'settings' | 'auth' | 'issue7'>('console');
   const [selectedVerifiedLog, setSelectedVerifiedLog] = useState<SshLogEvent | null>(null);
-  const [verificationFilter, setVerificationFilter] = useState<'ALL' | 'WHITELIST' | 'SUCCESS' | 'FAILURE' | 'BANNED'>('ALL');
+  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('ALL');
 
   // Live Log Tester state
   const [testLogInput, setTestLogInput] = useState<string>(
@@ -66,7 +46,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [logs, setLogs] = useState<SshLogEvent[]>(securityEngine.getLogs());
   const [bannedIps, setBannedIps] = useState<BannedIp[]>(securityEngine.getBannedIps());
   const [ufwRules, setUfwRules] = useState<UfwRuleEntry[]>(securityEngine.getUfwRules());
-  const [ufwOperations, setUfwOperations] = useState<any[]>(securityEngine.getUfwOperations());
+  const [ufwOperations, setUfwOperations] = useState<RawUfwOperation[]>(securityEngine.getUfwOperations());
   const [adminUser, setAdminUser] = useState(securityEngine.getAdminUser());
 
   // Form states for settings
@@ -405,16 +385,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {/* Quick verification filter tags */}
             <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/5 text-[11px] font-mono">
               <span className="text-slate-500 text-[10px]">Filtro de Verificación:</span>
-              {[
-                { id: 'ALL', label: 'Todos los Registros' },
-                { id: 'WHITELIST', label: '🛡️ Perdonados (Whitelist)' },
-                { id: 'SUCCESS', label: '✅ Accesos Válidos' },
-                { id: 'FAILURE', label: '⚠️ Fallos Computados' },
-                { id: 'BANNED', label: '🔥 IPs Sancionadas' },
-              ].map(pill => (
+              {VERIFICATION_FILTERS.map(pill => (
                 <button
                   key={pill.id}
-                  onClick={() => setVerificationFilter(pill.id as any)}
+                  onClick={() => setVerificationFilter(pill.id)}
                   className={`px-2.5 py-1 rounded-md text-[10px] transition-all cursor-pointer ${
                     verificationFilter === pill.id
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold shadow-sm'
@@ -756,7 +730,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <p className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">
                         Últimas operaciones del firewall
                   </p>
-                  {securityEngine.getUfwOperations().slice(0, 4).map((op: any, idx: number) => (
+                  {securityEngine.getUfwOperations().slice(0, 4).map((op: RawUfwOperation, idx: number) => (
                     <div
                       key={`${op.timestamp}-${idx}`}
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-mono border ${
