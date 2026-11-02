@@ -3,21 +3,23 @@
 
 > Documento **generado automáticamente** por la cátedra de Programación III (RepoSense + análisis de calidad + constancia). **No editar a mano**: se regenera en cada evaluación.
 > Rama evaluada: `main`. Análisis **heurístico** (regex + métricas): es una criba para orientar la revisión, **no una nota**.
-> Generado: 2026-10-29.
+> Generado: 2026-11-02.
 
 ## 1. Veredicto
 
 | Aspecto | Resultado |
 |---|---|
 | Tipo de proyecto | frontend |
-| Índice de calidad de servicios | **11/100** (mínimo 60) |
-| Criterios cumplidos | **8/15** |
+| Índice de calidad de servicios | **14/100** (mínimo 60) |
+| Criterios cumplidos | **12/14** |
 | Aprobado (semáforo) | **NO** |
-| Código (LOC) | 7,484 |
-| Archivos de código | 19 |
-| Tests (archivos) | 1 |
-| Cobertura de líneas | no medible (mínimo 80%) |
-| Capas detectadas | vistas, servicios |
+| Código (LOC) | 9,748 |
+| Archivos de código | 75 |
+| Tests (archivos) | 9 |
+| Cobertura de líneas | no aplica (frontend sin herramienta de cobertura E2E) (mínimo 80%) |
+| Capas detectadas | vistas, servicios, estado |
+
+> **Qué no se consideró:** el repositorio publica un informe de cobertura que **no se aceptó** como medición (coverage.xml: declara cobertura de archivos que un runner de Python no puede medir (ej. src/services/api.ts); coverage.xml: declara cobertura de archivos que un runner de Python no puede medir (ej. src/services/api.ts)). Esos valores no se usan: el número de arriba sale de **ejecutar la suite** tal como está en el repositorio. Un artefacto de cobertura sirve cuando lo genera un runner sobre el mismo código; si declara líneas que el runner no puede ejecutar, no es una medición.
 
 > **Aprobado** exige cumplir **todos** los criterios del semáforo. No es una nota: sirve para ordenar y priorizar la revisión.
 
@@ -25,8 +27,8 @@
 
 | Autor | Commits | Código (LOC) | Tests (LOC) | Docs (LOC) | Días activos | % del código |
 |---|---:|---:|---:|---:|---:|---:|
-| manuabrego | 2 | 8,328 | 0 | 1,472 | 2 | 100% |
-| manu_abrego_1913 | 2 | 0 | 0 | 183 | 4 | 0% |
+| manuabrego | 4 | 9,878 | 1,080 | 1,104 | 3 | 100% |
+| manu_abrego_1913 | 2 | 0 | 0 | 183 | 5 | 0% |
 
 > _El LOC de autoría lo calcula RepoSense sobre el historial y puede diferir del LOC de código del análisis de calidad (que mira solo el estado de `main`)._
 
@@ -51,7 +53,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Un resumen numérico (0-100) que combina todas las señales y métricas del análisis, con topes duros por duplicación.
 - **Por qué importa:** Ordena y prioriza la revisión: un índice bajo indica varias señales que conviene mirar juntas.
-- **Tu resultado:** índice **11/100** _(mínimo 60)_
+- **Tu resultado:** índice **14/100** _(mínimo 60)_
 - **Para investigar la causa:**
     - ¿En qué momento del proyecto se concentraron los problemas (arranque, integración de partes, cierre)?
     - ¿El índice bajó por muchas señales chicas o por una o dos graves?
@@ -61,17 +63,13 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Porcentaje de bloques de código repetidos (similitud) en el repositorio.
 - **Por qué importa:** Cada copia se mantiene por separado: un arreglo hay que repetirlo y los defectos se multiplican.
-- **Tu resultado:** **4.5%** de duplicación _(máximo 15%)_
+- **Tu resultado:** **4.7%** de duplicación _(máximo 15%)_
 
-### 3. Secretos hardcodeados (SEC) — A REVISAR
+### 3. Secretos hardcodeados (SEC) — OK
 
 - **Qué mide:** Credenciales, tokens o claves escritos directamente en el código en vez de leerse de variables de entorno.
 - **Por qué importa:** Un secreto en el repositorio queda expuesto en el historial aunque luego se borre, y compromete al servicio y a sus usuarios.
-- **Tu resultado:** **2** secreto(s) hardcodeado(s) _(máximo 0)_
-- **Para investigar la causa:**
-    - ¿De dónde salió ese valor: un ejemplo, una prueba rápida, una copia de un compañero?
-    - ¿En qué momento entró al código y por qué no se sacó antes de cerrar la tarea?
-    - ¿Se acordó cómo manejar credenciales antes de empezar, o se postergó para el final?
+- **Tu resultado:** **0** secreto(s) hardcodeado(s) _(máximo 0)_
 
 ### 4. Consultas SQL por concatenación (SQL) — OK
 
@@ -83,7 +81,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Si el código está separado en capas reconocibles (backend: presentación / lógica / datos; frontend: vistas / servicios / estado).
 - **Por qué importa:** Sin separación, cada archivo hace de todo y cualquier cambio toca varios lugares a la vez.
-- **Tu resultado:** **2** capa(s) detectada(s): vistas, servicios _(mínimo 2 capas (a partir de 150 LOC))_
+- **Tu resultado:** **3** capa(s) detectada(s): vistas, servicios, estado _(mínimo 2 capas (a partir de 150 LOC))_
 
 ### 6. Acceso a datos dentro del componente (HTTP) — OK
 
@@ -95,123 +93,71 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Mensajes de depuración olvidados (`console.log`, `print`, `debugger`).
 - **Por qué importa:** Generan ruido en los registros, pueden filtrar datos y dan sensación de código sin terminar.
-- **Tu resultado:** **34** mensaje(s) de depuración olvidado(s) _(máximo 0)_
+- **Tu resultado:** **1** mensaje(s) de depuración olvidado(s) _(máximo 0)_
 - **Para investigar la causa:**
     - ¿Fue depuración que quedó al cerrar una tarea, o se usó como registro permanente?
     - ¿Hubo una revisión final antes de cerrar la issue o la entrega?
     - ¿Quién agregó cada mensaje y con qué objetivo?
 
-### 8. Uso del tipo `any` (Any) — A REVISAR
+### 8. Uso del tipo `any` (Any) — OK
 
 - **Qué mide:** Uso de `any` en TypeScript, que desactiva la verificación de tipos.
 - **Por qué importa:** Se pierde la ayuda del compilador justo donde los datos vienen de afuera (API, formularios).
-- **Tu resultado:** **4** uso(s) de `any` _(máximo 2)_
-- **Para investigar la causa:**
-    - ¿Se usó `any` para destrabar un error de tipos sin tiempo de resolverlo?
-    - ¿Está claro el modelo de datos (qué forma tienen la respuesta de la API y el estado de la app)?
-    - ¿Los tipos se definen en un solo lugar, o cada archivo inventa los suyos?
+- **Tu resultado:** **0** uso(s) de `any` _(máximo 2)_
 
-### 9. Componente demasiado grande (BigC) — A REVISAR
+### 9. Componente demasiado grande (BigC) — OK
 
 - **Qué mide:** Componentes de UI muy extensos, que suelen mezclar render, estado y lógica.
 - **Por qué importa:** Son difíciles de leer, probar y reutilizar, y sus cambios tienen efectos inesperados.
-- **Tu resultado:** **9** componente(s) demasiado grande(s) _(máximo 1)_
-- **Para investigar la causa:**
-    - ¿El componente creció a medida que se agregaban requisitos, sin volver a dividirlo?
-    - ¿Mezcla responsabilidades distintas (mostrar, calcular, pedir datos)?
-    - ¿Se dividió por pantalla o por unidad de responsabilidad?
+- **Tu resultado:** **1** componente(s) demasiado grande(s) _(máximo 1)_
 
-### 10. Baja cohesión (Coh) — A REVISAR
+### 10. Baja cohesión (Coh) — OK
 
 - **Qué mide:** Una clase o unidad cuyos métodos y campos no están relacionados entre sí.
 - **Por qué importa:** Una unidad que cambia por motivos distintos es frágil y cuesta entenderla.
-- **Tu resultado:** **1** unidad(es) con baja cohesión _(máximo 0)_
-- **Para investigar la causa:**
-    - ¿La unidad agrupa cosas que en realidad pertenecen a lugares distintos?
-    - ¿Cambia por motivos diferentes según la tarea?
-    - ¿Se pensó su responsabilidad antes de escribirla, o se fue agregando?
+- **Tu resultado:** **0** unidad(es) con baja cohesión _(máximo 0)_
 
 ### 11. Complejidad alta (Compl) — OK
 
 - **Qué mide:** Complejidad ciclomática: cantidad de caminos posibles dentro de una función (condicionales, bucles, casos).
 - **Por qué importa:** Muchos caminos = difícil de seguir y de probar; suelen esconderse casos sin cubrir.
-- **Tu resultado:** **6** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 7484 LOC))_
+- **Tu resultado:** **18** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 9748 LOC))_
 
 ### 12. Funciones/métodos largos o con muchos parámetros (Tam) — OK
 
 - **Qué mide:** Tamaño de las funciones/métodos y cantidad de parámetros.
 - **Por qué importa:** Una función que hace varias cosas cuesta leerla, nombrarla y reutilizarla.
-- **Tu resultado:** **11** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
+- **Tu resultado:** **23** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
 
 ### 13. Acoplamiento alto (Acop) — OK
 
 - **Qué mide:** Cuánto depende una unidad de las partes internas de otra.
 - **Por qué importa:** Piezas muy enlazadas hacen que un cambio se propague y que sea difícil reemplazar partes.
-- **Tu resultado:** **6** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
+- **Tu resultado:** **5** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
 
-### 14. Cobertura de tests (Cob) — A REVISAR
-
-- **Qué mide:** Porcentaje de líneas de código ejecutadas por la suite de tests (cobertura real, no cantidad de archivos de test).
-- **Por qué importa:** Un test que existe pero no ejecuta el código no protege de nada: la cobertura muestra qué partes quedan sin verificar.
-- **Tu resultado:** **no medible** (sin tests, sin runner o sin artefacto de cobertura) _(mínimo 80% de líneas)_
-- **Para investigar la causa:**
-    - ¿Qué módulos o ramas del sistema nunca se ejecutan en los tests?
-    - ¿Los tests prueban el camino principal y los errores, o solo el caso feliz?
-    - ¿La suite se puede correr en CI sin base de datos ni servicios externos?
-
-### 15. Vistas del frontend (Vistas) — OK
+### 14. Vistas del frontend (Vistas) — OK
 
 - **Qué mide:** Cantidad de vistas/componentes de pantalla del frontend.
 - **Por qué importa:** El frontend se mide por pantallas: pocas vistas sugiere poca cobertura de la interfaz pedida.
-- **Tu resultado:** **10** vista(s)/componente(s) _(mínimo 8)_
+- **Tu resultado:** **49** vista(s)/componente(s) _(mínimo 8)_
 
 ## 5. Qué falta para aprobar
 
-Criterios que hoy están en rojo y qué habría que cambiar para alcanzar el nivel de aprobación (perfil `exigente`):
+Criterios que hoy están en rojo y, para cada uno, una explicación breve de **cómo corregirlo** hasta alcanzar el nivel de aprobación (perfil `exigente`):
 
-| Criterio | Resultado actual | Meta | Qué arreglar |
+| Criterio | Resultado actual | Meta | Cómo corregirlo |
 |---|---|---|---|
-| Índice de calidad de servicios (indice) | índice **11/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
-| Secretos hardcodeados (SEC) | **2** secreto(s) hardcodeado(s) | máximo 0 | Leer credenciales de variables de entorno o del gestor de secretos y sacarlas del código; 0 casos. |
-| Depuración olvidada (DBG) | **34** mensaje(s) de depuración olvidado(s) | máximo 0 | Quitar `console.log`/`print`/`debugger` del código de producción; 0 casos. |
-| Uso del tipo `any` (Any) | **4** uso(s) de `any` | máximo 2 | Tipar los datos que vienen de la API y de los formularios; bajar `any` a ≤2. |
-| Componente demasiado grande (BigC) | **9** componente(s) demasiado grande(s) | máximo 1 | Dividir el componente por responsabilidad en subcomponentes; ≤1 componente grande. |
-| Baja cohesión (Coh) | **1** unidad(es) con baja cohesión | máximo 0 | Separar en unidades con una sola responsabilidad; 0 clases con baja cohesión. |
-| Cobertura de tests (Cob) | **no medible** (sin tests, sin runner o sin artefacto de cobertura) | mínimo 80% de líneas | Publicar cobertura (o correr la suite con coverage) y cubrir ≥80% de líneas. |
+| Índice de calidad de servicios (indice) | índice **14/100** | mínimo 60 | El índice es un resumen: sube al corregir los criterios en rojo. Empezá por los de más peso (duplicación ≤15%, SEC y SQL en 0, capas ≥2) y volvé a medir; la meta es ≥60. |
+| Depuración olvidada (DBG) | **1** mensaje(s) de depuración olvidado(s) | máximo 0 | Borrá `console.log`/`print`/`debugger` del código de producción. Si necesitás registro, usá el logger del proyecto con el nivel adecuado. Meta: 0 casos. |
 
-> Empezá por las señales de seguridad (**SEC**, **SQL**) y por la **duplicación**: son las que más pesan en el índice y las más rápidas de verificar a ojo.
+> Empezá por las señales de seguridad (**SEC**, **SQL**) y por la **duplicación**: son las que más pesan en el índice y las más rápidas de verificar a ojo. Después de corregir, volvé a correr la medición: el semáforo se recalcula sobre `main`.
 
 ## 6. Anexo: dónde mirar
 
 Archivos donde el análisis encontró cada señal en rojo (sin número de línea, a propósito):
 
-**Secretos hardcodeados (SEC)** — 1 archivo(s):
-- `src/components/SwaggerDocs.tsx`
-
-**Depuración olvidada (DBG)** — 3 archivo(s):
+**Depuración olvidada (DBG)** — 1 archivo(s):
 - `servicios-abrego/backend-a-fastapi/main.py`
-- `servicios-mulet/backend-b-engine/server.js`
-- `src/data/architectureFiles.ts`
-
-**Uso del tipo `any` (Any)** — 4 archivo(s):
-- `src/components/SwaggerDocs.tsx`
-- `src/data/openApiSpec.ts`
-- `src/services/api.ts`
-- `src/services/securityEngine.ts`
-
-**Componente demasiado grande (BigC)** — 9 archivo(s):
-- `src/App.tsx`
-- `src/components/ArchitectureHub.tsx`
-- `src/components/AttackSimulatorModal.tsx`
-- `src/components/AuthPortal.tsx`
-- `src/components/Dashboard.tsx`
-- `src/components/LandingPage.tsx`
-- `src/components/Navbar.tsx`
-- `src/components/RedisInspector.tsx`
-- `src/components/SwaggerDocs.tsx`
-
-**Baja cohesión (Coh)** — 1 archivo(s):
-- `src/services/securityEngine.ts`
 
 ---
 _Informe generado por la cátedra. Los umbrales corresponden al perfil `exigente`. Ante dudas, revisá el archivo señalado y el criterio en `CRITERIOS-CALIDAD.md`._
