@@ -3,25 +3,25 @@
 
 > Documento **generado automáticamente** por la cátedra de Programación III (RepoSense + análisis de calidad + constancia). **No editar a mano**: se regenera en cada evaluación.
 > Rama evaluada: `main`. Análisis **heurístico** (regex + métricas): es una criba para orientar la revisión, **no una nota**.
-> Generado: 2026-11-03.
+> Generado: 2026-11-05.
 
 ## 1. Veredicto
 
 | Aspecto | Resultado |
 |---|---|
-| Tipo de proyecto | frontend |
-| Índice de calidad de servicios | **14/100** (mínimo 60) |
-| Criterios cumplidos | **12/14** |
-| Aprobado (semáforo) | **NO** |
-| Código (LOC) | 9,748 |
-| Archivos de código | 75 |
+| Tipo de proyecto | app |
+| Índice de calidad de servicios | **95/100** (mínimo 50) |
+| Criterios cumplidos | **14/15** |
+| Aprobado (semáforo) | **SI** |
+| Código (LOC) | 8,316 |
+| Archivos de código | 66 |
 | Tests (archivos) | 9 |
-| Cobertura de líneas | no aplica (frontend sin herramienta de cobertura E2E) (mínimo 80%) |
-| Capas detectadas | vistas, servicios, estado |
+| Cobertura de líneas | no aplica (frontend sin herramienta de cobertura E2E) |
+| Capas detectadas | presentacion, logica, datos, vistas, servicios, estado |
 
 > **Qué no se consideró:** el repositorio publica un informe de cobertura que **no se aceptó** como medición (coverage.xml: declara cobertura de archivos que un runner de Python no puede medir (ej. src/services/api.ts); coverage.xml: declara cobertura de archivos que un runner de Python no puede medir (ej. src/services/api.ts)). Esos valores no se usan: el número de arriba sale de **ejecutar la suite** tal como está en el repositorio. Un artefacto de cobertura sirve cuando lo genera un runner sobre el mismo código; si declara líneas que el runner no puede ejecutar, no es una medición.
 
-> **Aprobado** exige cumplir **todos** los criterios del semáforo. No es una nota: sirve para ordenar y priorizar la revisión.
+> **Aprobado** exige las compuertas críticas (**SEC**, **SQL**, **capas**, **índice ≥ 50** y **cobertura ≥ 80 %** cuando aplica) y tolera hasta **3 criterios en rojo** (12/15). No es una nota: sirve para ordenar y priorizar la revisión.
 
 ## 2. Autoría (RepoSense)
 
@@ -40,7 +40,7 @@
 
 | Alumno | Sesiones | Cumplimiento | Pausa | Recencia | IC | Nivel | Para subir de nivel |
 |---|--:|--:|--:|--:|--:|--|--|
-| manu_abrego_1913 | 4 | 18% | 61 d | 93% | **25** | No aprueba | Cumplimiento 18% (mín. 50%); Pausa 61 d (máx. 10 d) |
+| manu_abrego_1913 | 5 | 22% | 61 d | 57% | **22** | No aprueba | Cumplimiento 22% (mín. 50%) |
 | manu_abrego_1913 | — | — | — | — | — | — | sin datos de IC |
 
 > Para aprobar el IC: **2 sesiones por semana** sostenidas, sin pausas mayores a **10 días** y con actividad en las **últimas 2 semanas**. Se excluyen merges, bots y al docente. Zona horaria UTC-3.
@@ -49,15 +49,11 @@
 
 Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuando el resultado está en rojo, se agregan preguntas para **investigar la causa** (no hay recetas: entender el porqué es parte de la evaluación).
 
-### 1. Índice de calidad de servicios (indice) — A REVISAR
+### 1. Índice de calidad de servicios (indice) — OK
 
 - **Qué mide:** Un resumen numérico (0-100) que combina todas las señales y métricas del análisis, con topes duros por duplicación.
 - **Por qué importa:** Ordena y prioriza la revisión: un índice bajo indica varias señales que conviene mirar juntas.
-- **Tu resultado:** índice **14/100** _(mínimo 60)_
-- **Para investigar la causa:**
-    - ¿En qué momento del proyecto se concentraron los problemas (arranque, integración de partes, cierre)?
-    - ¿El índice bajó por muchas señales chicas o por una o dos graves?
-    - ¿Se revisó el código integrado después de unir el trabajo de cada integrante?
+- **Tu resultado:** índice **95/100** _(mínimo 50)_
 
 ### 2. Duplicación (DRY) (duplicacion) — OK
 
@@ -81,7 +77,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Si el código está separado en capas reconocibles (backend: presentación / lógica / datos; frontend: vistas / servicios / estado).
 - **Por qué importa:** Sin separación, cada archivo hace de todo y cualquier cambio toca varios lugares a la vez.
-- **Tu resultado:** **3** capa(s) detectada(s): vistas, servicios, estado _(mínimo 2 capas (a partir de 150 LOC))_
+- **Tu resultado:** **6** capa(s) detectada(s): presentacion, logica, datos, vistas, servicios, estado _(mínimo 2 capas (a partir de 150 LOC))_
 
 ### 6. Acceso a datos dentro del componente (HTTP) — OK
 
@@ -121,36 +117,39 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Complejidad ciclomática: cantidad de caminos posibles dentro de una función (condicionales, bucles, casos).
 - **Por qué importa:** Muchos caminos = difícil de seguir y de probar; suelen esconderse casos sin cubrir.
-- **Tu resultado:** **18** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 9748 LOC))_
+- **Tu resultado:** **15** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 8316 LOC))_
 
 ### 12. Funciones/métodos largos o con muchos parámetros (Tam) — OK
 
 - **Qué mide:** Tamaño de las funciones/métodos y cantidad de parámetros.
 - **Por qué importa:** Una función que hace varias cosas cuesta leerla, nombrarla y reutilizarla.
-- **Tu resultado:** **23** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
+- **Tu resultado:** **13** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
 
 ### 13. Acoplamiento alto (Acop) — OK
 
 - **Qué mide:** Cuánto depende una unidad de las partes internas de otra.
 - **Por qué importa:** Piezas muy enlazadas hacen que un cambio se propague y que sea difícil reemplazar partes.
-- **Tu resultado:** **5** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
+- **Tu resultado:** **4** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
 
-### 14. Vistas del frontend (Vistas) — OK
+### 14. Endpoints del backend (EP) — OK
+
+- **Qué mide:** Cantidad de endpoints (rutas HTTP) expuestos por el backend.
+- **Por qué importa:** El backend se mide por lo que expone: pocos endpoints sugiere poca funcionalidad de servicio.
+- **Tu resultado:** **62** endpoint(s) _(mínimo 5)_
+
+### 15. Vistas del frontend (Vistas) — OK
 
 - **Qué mide:** Cantidad de vistas/componentes de pantalla del frontend.
 - **Por qué importa:** El frontend se mide por pantallas: pocas vistas sugiere poca cobertura de la interfaz pedida.
-- **Tu resultado:** **49** vista(s)/componente(s) _(mínimo 8)_
+- **Tu resultado:** **49** vista(s)/componente(s) _(mínimo 6)_
 
-## 5. Qué falta para aprobar
+## 5. Observaciones y qué falta
 
-Criterios que hoy están en rojo y, para cada uno, una explicación breve de **cómo corregirlo** hasta alcanzar el nivel de aprobación (perfil `exigente`):
+**Aprobado con observaciones.** Estos criterios quedan en rojo (se permiten hasta **3** sin que sean compuertas críticas), así que no bloquean la aprobación pero conviene corregirlos:
 
-| Criterio | Resultado actual | Meta | Cómo corregirlo |
-|---|---|---|---|
-| Índice de calidad de servicios (indice) | índice **14/100** | mínimo 60 | El índice es un resumen: sube al corregir los criterios en rojo. Empezá por los de más peso (duplicación ≤15%, SEC y SQL en 0, capas ≥2) y volvé a medir; la meta es ≥60. |
-| Depuración olvidada (DBG) | **1** mensaje(s) de depuración olvidado(s) | máximo 0 | Borrá `console.log`/`print`/`debugger` del código de producción. Si necesitás registro, usá el logger del proyecto con el nivel adecuado. Meta: 0 casos. |
-
-> Empezá por las señales de seguridad (**SEC**, **SQL**) y por la **duplicación**: son las que más pesan en el índice y las más rápidas de verificar a ojo. Después de corregir, volvé a correr la medición: el semáforo se recalcula sobre `main`.
+| Criterio | Resultado actual | Meta | Brecha | Cómo alcanzarlo |
+|---|---|---|---|---|
+| Depuración olvidada (DBG) | **1** mensaje(s) de depuración olvidado(s) | máximo 0 | 1 caso(s) a eliminar | Borrá `console.log`/`print`/`debugger` del código de producción. Si necesitás registro, usá el logger del proyecto con el nivel adecuado. Meta: 0 casos. |
 
 ## 6. Anexo: dónde mirar
 
