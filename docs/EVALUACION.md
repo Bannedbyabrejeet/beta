@@ -10,17 +10,15 @@
 | Aspecto | Resultado |
 |---|---|
 | Tipo de proyecto | app |
-| Índice de calidad de servicios | **95/100** (mínimo 50) |
-| Criterios cumplidos | **14/15** |
+| Índice de calidad de servicios | **100/100** (mínimo 50) |
+| Criterios cumplidos | **16/16** |
 | Aprobado (semáforo) | **SI** |
 | Código (LOC) | 8,316 |
 | Archivos de código | 66 |
-| Tests (archivos) | 9 |
-| Cobertura de líneas | no aplica (frontend sin herramienta de cobertura E2E) |
+| Tests (archivos) | 15 |
+| Cobertura de líneas | 89.1% (mínimo 80%) |
 | Capas detectadas | presentacion, logica, datos, vistas, servicios, estado |
 | Pushes directos a `main` (sin PR) | 0 |
-
-> **Qué no se consideró:** el repositorio publica un informe de cobertura que **no se aceptó** como medición (coverage.xml: declara cobertura de archivos que un runner de Python no puede medir (ej. src/services/api.ts); coverage.xml: declara cobertura de archivos que un runner de Python no puede medir (ej. src/services/api.ts)). Esos valores no se usan: el número de arriba sale de **ejecutar la suite** tal como está en el repositorio. Un artefacto de cobertura sirve cuando lo genera un runner sobre el mismo código; si declara líneas que el runner no puede ejecutar, no es una medición.
 
 > **Aprobado** exige las compuertas críticas (**SEC**, **SQL**, **capas**, **índice ≥ 50** y **cobertura ≥ 80 %** cuando aplica) y tolera hasta **3 criterios en rojo** (12/15). No es una nota: sirve para ordenar y priorizar la revisión.
 
@@ -28,8 +26,8 @@
 
 | Autor | Commits | Código (LOC) | Tests (LOC) | Docs (LOC) | Días activos | % del código |
 |---|---:|---:|---:|---:|---:|---:|
-| manuabrego | 4 | 9,878 | 1,080 | 1,104 | 3 | 100% |
-| manu_abrego_1913 | 2 | 0 | 0 | 183 | 5 | 0% |
+| manuabrego | 5 | 9,887 | 1,454 | 1,113 | 4 | 100% |
+| manu_abrego_1913 | 2 | 0 | 0 | 183 | 6 | 0% |
 
 > _El LOC de autoría lo calcula RepoSense sobre el historial y puede diferir del LOC de código del análisis de calidad (que mira solo el estado de `main`)._
 
@@ -41,7 +39,7 @@
 
 | Alumno | Sesiones | Cumplimiento | Pausa | Recencia | IC | Nivel | Para subir de nivel |
 |---|--:|--:|--:|--:|--:|--|--|
-| manu_abrego_1913 | 5 | 22% | 61 d | 14% | **16** | No aprueba | Cumplimiento 22% (mín. 50%); Recencia 14% (mín. 50%) |
+| manu_abrego_1913 | 6 | 23% | 61 d | 100% | **29** | No aprueba | Cumplimiento 23% (mín. 50%) |
 | manu_abrego_1913 | — | — | — | — | — | — | sin datos de IC |
 
 > Para aprobar el IC: **2 sesiones por semana** sostenidas, sin pausas mayores a **10 días** y con actividad en las **últimas 2 semanas**. Se excluyen merges, bots y al docente. Zona horaria UTC-3.
@@ -54,7 +52,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Un resumen numérico (0-100) que combina todas las señales y métricas del análisis, con topes duros por duplicación.
 - **Por qué importa:** Ordena y prioriza la revisión: un índice bajo indica varias señales que conviene mirar juntas.
-- **Tu resultado:** índice **95/100** _(mínimo 50)_
+- **Tu resultado:** índice **100/100** _(mínimo 50)_
 
 ### 2. Duplicación (DRY) (duplicacion) — OK
 
@@ -86,15 +84,11 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 - **Por qué importa:** Duplica la lógica de acceso a datos y acopla la vista al backend: un cambio de API toca muchos componentes.
 - **Tu resultado:** **0** llamada(s) a la API dentro de componente(s) _(máximo 0)_
 
-### 7. Depuración olvidada (DBG) — A REVISAR
+### 7. Depuración olvidada (DBG) — OK
 
 - **Qué mide:** Mensajes de depuración olvidados (`console.log`, `print`, `debugger`).
 - **Por qué importa:** Generan ruido en los registros, pueden filtrar datos y dan sensación de código sin terminar.
-- **Tu resultado:** **1** mensaje(s) de depuración olvidado(s) _(máximo 0)_
-- **Para investigar la causa:**
-    - ¿Fue depuración que quedó al cerrar una tarea, o se usó como registro permanente?
-    - ¿Hubo una revisión final antes de cerrar la issue o la entrega?
-    - ¿Quién agregó cada mensaje y con qué objetivo?
+- **Tu resultado:** **0** mensaje(s) de depuración olvidado(s) _(máximo 0)_
 
 ### 8. Uso del tipo `any` (Any) — OK
 
@@ -132,13 +126,19 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 - **Por qué importa:** Piezas muy enlazadas hacen que un cambio se propague y que sea difícil reemplazar partes.
 - **Tu resultado:** **4** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
 
-### 14. Endpoints del backend (EP) — OK
+### 14. Cobertura de tests (Cob) — OK
+
+- **Qué mide:** Porcentaje de líneas de código ejecutadas por la suite de tests (cobertura real, no cantidad de archivos de test).
+- **Por qué importa:** Un test que existe pero no ejecuta el código no protege de nada: la cobertura muestra qué partes quedan sin verificar.
+- **Tu resultado:** **89.1%** de líneas cubiertas · fuente: artefacto: coverage.xml _(mínimo 80% de líneas)_
+
+### 15. Endpoints del backend (EP) — OK
 
 - **Qué mide:** Cantidad de endpoints (rutas HTTP) expuestos por el backend.
 - **Por qué importa:** El backend se mide por lo que expone: pocos endpoints sugiere poca funcionalidad de servicio.
 - **Tu resultado:** **62** endpoint(s) _(mínimo 5)_
 
-### 15. Vistas del frontend (Vistas) — OK
+### 16. Vistas del frontend (Vistas) — OK
 
 - **Qué mide:** Cantidad de vistas/componentes de pantalla del frontend.
 - **Por qué importa:** El frontend se mide por pantallas: pocas vistas sugiere poca cobertura de la interfaz pedida.
@@ -146,19 +146,15 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 ## 5. Observaciones y qué falta
 
-**Aprobado con observaciones.** Estos criterios quedan en rojo (se permiten hasta **3** sin que sean compuertas críticas), así que no bloquean la aprobación pero conviene corregirlos:
-
-| Criterio | Resultado actual | Meta | Brecha | Cómo alcanzarlo |
-|---|---|---|---|---|
-| Depuración olvidada (DBG) | **1** mensaje(s) de depuración olvidado(s) | máximo 0 | 1 caso(s) a eliminar | Borrá `console.log`/`print`/`debugger` del código de producción. Si necesitás registro, usá el logger del proyecto con el nivel adecuado. Meta: 0 casos. |
+_Cumple **todos** los criterios del semáforo: no hay nada que arreglar para aprobar. El siguiente objetivo es sostenerlo y mejorar duplicación y diseño._
 
 ## 6. Actividad en clase (miércoles y viernes)
 
-> Se consideran las **23 clases** del período (miércoles y viernes, según `config/constancia.json`; feriados y semanas sin clase descontados). `Commits` = commits de trabajo (no-merge); `Merges` = merges de PR (también son push). Los días sin actividad dicen **sin actividad**.
+> Se consideran las **26 clases** del período (miércoles y viernes, según `config/constancia.json`; feriados y semanas sin clase descontados). `Commits` = commits de trabajo (no-merge); `Merges` = merges de PR (también son push). Los días sin actividad dicen **sin actividad**.
 
 ### manu_abrego_1913
 
-**10/23 clases con actividad** · 11 commits · 9 merges
+**11/26 clases con actividad** · 12 commits · 10 merges
 
 | Fecha | Actividad | Repositorios | Commits / merges |
 |---|:--:|---|--:|
@@ -185,10 +181,13 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 | 2026-10-23 | No | sin actividad | 0 / 0 |
 | 2026-10-28 | **Sí** | beta | 2 / 1 |
 | 2026-10-30 | **Sí** | beta | 1 / 2 |
+| 2026-11-04 | No | sin actividad | 0 / 0 |
+| 2026-11-06 | No | sin actividad | 0 / 0 |
+| 2026-11-11 | **Sí** | beta | 1 / 1 |
 
 ### SantiMulet
 
-**12/23 clases con actividad** · 22 commits · 9 merges
+**13/26 clases con actividad** · 23 commits · 10 merges
 
 | Fecha | Actividad | Repositorios | Commits / merges |
 |---|:--:|---|--:|
@@ -215,13 +214,13 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 | 2026-10-23 | No | sin actividad | 0 / 0 |
 | 2026-10-28 | **Sí** | BanSystem | 3 / 2 |
 | 2026-10-30 | **Sí** | BanSystem | 2 / 1 |
+| 2026-11-04 | No | sin actividad | 0 / 0 |
+| 2026-11-06 | No | sin actividad | 0 / 0 |
+| 2026-11-11 | **Sí** | BanSystem | 1 / 1 |
 
 ## 7. Anexo: dónde mirar
 
-Archivos donde el análisis encontró cada señal en rojo (sin número de línea, a propósito):
-
-**Depuración olvidada (DBG)** — 1 archivo(s):
-- `servicios-abrego/backend-a-fastapi/main.py`
+_No hay criterios en rojo con archivos asociados._
 
 ---
 _Informe generado por la cátedra. Los umbrales corresponden al perfil `exigente`. Ante dudas, revisá el archivo señalado y el criterio en `CRITERIOS-CALIDAD.md`._
