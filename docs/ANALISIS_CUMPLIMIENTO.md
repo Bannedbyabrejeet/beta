@@ -137,6 +137,15 @@ mismos endpoints). Riesgo real solo en la división de componentes (regresiones 
 
 ---
 
+### 4. Cobertura y tests (RESUELTO)
+- Backend: `servicios-abrego/backend-a-fastapi/tests/` con **pytest** + **pytest-cov** (24 tests, 5 archivos).
+  Genera `coverage.xml` (Cobertura, 89.09 % de `main.py`) en la raíz del repo.
+  El evaluador ahora puede medirlo (es código Python real).
+- Frontend: `tests/` con **vitest** + `@vitest/coverage-v8` (72 tests, 6 archivos).
+  Genera `coverage-frontend.xml` (95.58 % de `src/services`).
+- `pytest.ini` en la raíz y `conftest.py` para que `python3 -m pytest` funcione desde la raíz.
+- `coverage.xml` (Python) queda versionado; `coverage-frontend.xml` (TS) también.
+
 ## 5. Lo que NO conviene hacer
 
 - **No** borrar `console.log` sin logger: se pierde la evidencia en vivo de la demo
