@@ -10,3 +10,4 @@ local-dev/run/
 local-dev/auth.log
 local-dev/ufw-rules.log
 __pycache__/
+.coverage
